@@ -515,35 +515,26 @@ function viridisColor(t: number): string {
   return interpolateColor(stops[index], stops[index + 1] ?? stops[index], fraction);
 }
 
-function drawContinuousColorbar(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  min: number | null,
-  max: number | null,
-  dark: boolean,
-  label: string
-): void {
-  const gradient = ctx.createLinearGradient(0, y + height, 0, y);
-  for (let i = 0; i <= 10; i += 1) {
-    gradient.addColorStop(i / 10, viridisColor(i / 10));
-  }
-  ctx.fillStyle = gradient;
-  ctx.fillRect(x, y, width, height);
-  ctx.strokeStyle = dark ? '#475569' : '#cbd5e1';
-  ctx.strokeRect(x, y, width, height);
-  ctx.fillStyle = dark ? '#e5e7eb' : '#334155';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(label, x - 6, y - 8);
-  if (max !== null) {
-    ctx.fillText(String(Number(max.toFixed(3))), x + width + 6, y + 4);
-  }
-  if (min !== null) {
-    ctx.fillText(String(Number(min.toFixed(3))), x + width + 6, y + height);
-  }
+function getEmbeddingExtents(payload: EmbeddingPayload): {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  spanX: number;
+  spanY: number;
+} {
+  const minX = Math.min(...payload.x);
+  const maxX = Math.max(...payload.x);
+  const minY = Math.min(...payload.y);
+  const maxY = Math.max(...payload.y);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    spanX: Math.max(maxX - minX, 1e-9),
+    spanY: Math.max(maxY - minY, 1e-9)
+  };
 }
 
 function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null {
@@ -551,16 +542,23 @@ function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null 
     return null;
   }
   const categorical = payload.color;
-
   const legend = document.createElement('div');
-  legend.className = 'ov-embedding-legend';
+  legend.className = 'ov-legend-panel';
+
+  const title = document.createElement('div');
+  title.className = 'ov-legend-title';
+  title.textContent = `obs.${categorical.column}`;
+  legend.appendChild(title);
+
+  const chips = document.createElement('div');
+  chips.className = 'ov-legend-chips';
 
   categorical.labels.forEach((label, index) => {
-    const item = document.createElement('div');
-    item.className = 'ov-embedding-legend-item';
+    const item = document.createElement('span');
+    item.className = 'ov-legend-chip';
 
     const swatch = document.createElement('span');
-    swatch.className = 'ov-embedding-legend-swatch';
+    swatch.className = 'ov-legend-dot';
     swatch.style.background = categorical.palette[index] ?? '#64748b';
 
     const text = document.createElement('span');
@@ -568,34 +566,69 @@ function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null 
 
     item.appendChild(swatch);
     item.appendChild(text);
-    legend.appendChild(item);
+    chips.appendChild(item);
   });
 
+  legend.appendChild(chips);
+  return legend;
+}
+
+function createContinuousLegend(payload: EmbeddingPayload): HTMLElement | null {
+  if (payload.color.mode !== 'continuous') {
+    return null;
+  }
+
+  const legend = document.createElement('div');
+  legend.className = 'ov-legend-panel';
+
+  const title = document.createElement('div');
+  title.className = 'ov-legend-title';
+  title.textContent = `obs.${payload.color.column}`;
+  legend.appendChild(title);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ov-legend-colorbar-wrap';
+
+  const minLabel = document.createElement('span');
+  minLabel.className = 'ov-legend-colorbar-val';
+  minLabel.textContent =
+    payload.color.min === null ? 'NA' : String(Number(payload.color.min.toFixed(3)));
+
+  const bar = document.createElement('span');
+  bar.className = 'ov-legend-colorbar-bar';
+
+  const maxLabel = document.createElement('span');
+  maxLabel.className = 'ov-legend-colorbar-val';
+  maxLabel.textContent =
+    payload.color.max === null ? 'NA' : String(Number(payload.color.max.toFixed(3)));
+
+  wrap.appendChild(minLabel);
+  wrap.appendChild(bar);
+  wrap.appendChild(maxLabel);
+  legend.appendChild(wrap);
   return legend;
 }
 
 function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): void {
   const dark = isDarkMode();
   const canvas = document.createElement('canvas');
-  const width = Math.max(host.clientWidth || 720, 320);
+  const width = Math.max(host.clientWidth || 640, 320);
   const dpr = window.devicePixelRatio || 1;
   const margin = {
     top: 18,
-    right: payload.color.mode === 'continuous' ? 82 : 18,
+    right: 18,
     bottom: 42,
     left: 48
   };
-
-  const minX = Math.min(...payload.x);
-  const maxX = Math.max(...payload.x);
-  const minY = Math.min(...payload.y);
-  const maxY = Math.max(...payload.y);
-  const spanX = Math.max(maxX - minX, 1e-9);
-  const spanY = Math.max(maxY - minY, 1e-9);
+  const { minX, maxX, minY, maxY, spanX, spanY } = getEmbeddingExtents(payload);
   const plotWidth = width - margin.left - margin.right;
-  const aspectRatio = spanY / spanX;
-  const plotHeight = Math.max(240, Math.min(Math.round(plotWidth * aspectRatio), 640));
+  const plotHeight = Math.max(280, Math.min(Math.round(width * 0.58), 420));
   const height = margin.top + plotHeight + margin.bottom;
+  const scale = Math.min(plotWidth / spanX, plotHeight / spanY);
+  const drawnWidth = spanX * scale;
+  const drawnHeight = spanY * scale;
+  const plotLeft = margin.left + (plotWidth - drawnWidth) / 2;
+  const plotTop = margin.top + (plotHeight - drawnHeight) / 2;
   const pointSize = payload.shown_points > 40000 ? 1.5 : payload.shown_points > 12000 ? 2.2 : 3.2;
 
   canvas.width = Math.round(width * dpr);
@@ -622,8 +655,8 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): vo
     spanY
   });
 
-  const xToCanvas = (value: number) => margin.left + ((value - minX) / spanX) * plotWidth;
-  const yToCanvas = (value: number) => margin.top + plotHeight - ((value - minY) / spanY) * plotHeight;
+  const xToCanvas = (value: number) => plotLeft + (value - minX) * scale;
+  const yToCanvas = (value: number) => plotTop + drawnHeight - (value - minY) * scale;
 
   ctx.fillStyle = dark ? '#111827' : '#ffffff';
   ctx.fillRect(0, 0, width, height);
@@ -631,6 +664,20 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): vo
   ctx.strokeStyle = dark ? '#334155' : '#cbd5e1';
   ctx.lineWidth = 1;
   ctx.strokeRect(margin.left, margin.top, plotWidth, plotHeight);
+
+  ctx.strokeStyle = dark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)';
+  for (let i = 1; i < 4; i += 1) {
+    const x = margin.left + (plotWidth / 4) * i;
+    const y = margin.top + (plotHeight / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(x, margin.top);
+    ctx.lineTo(x, margin.top + plotHeight);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(margin.left, y);
+    ctx.lineTo(margin.left + plotWidth, y);
+    ctx.stroke();
+  }
 
   ctx.fillStyle = dark ? '#e5e7eb' : '#334155';
   ctx.font = '12px sans-serif';
@@ -676,20 +723,6 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): vo
     ctx.fill();
   }
   ctx.globalAlpha = 1;
-
-  if (payload.color.mode === 'continuous') {
-    drawContinuousColorbar(
-      ctx,
-      width - margin.right + 24,
-      margin.top + 12,
-      12,
-      plotHeight - 24,
-      payload.color.min,
-      payload.color.max,
-      dark,
-      payload.color.column
-    );
-  }
 }
 
 function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
@@ -737,14 +770,48 @@ function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
     root.appendChild(warning);
   }
 
+  const plotLayout = document.createElement('div');
+  plotLayout.className = 'ov-plot-layout';
+
   const host = document.createElement('div');
   host.className = 'ov-embedding-host';
-  root.appendChild(host);
+  plotLayout.appendChild(host);
 
-  const legend = createCategoricalLegend(payload);
+  const sidecar = document.createElement('aside');
+  sidecar.className = 'ov-plot-sidecar';
+
+  const stats = document.createElement('div');
+  stats.className = 'ov-plot-stats';
+  const extents = getEmbeddingExtents(payload);
+  const statsData = [
+    ['Points', payload.sampled ? `${payload.shown_points}/${payload.total_points}` : `${payload.total_points}`],
+    ['X range', `${Number(extents.minX.toFixed(2))} .. ${Number(extents.maxX.toFixed(2))}`],
+    ['Y range', `${Number(extents.minY.toFixed(2))} .. ${Number(extents.maxY.toFixed(2))}`]
+  ];
+
+  statsData.forEach(([label, value]) => {
+    const row = document.createElement('div');
+    row.className = 'ov-plot-stat';
+    const labelNode = document.createElement('span');
+    labelNode.className = 'ov-plot-stat-label';
+    labelNode.textContent = label;
+    const valueNode = document.createElement('span');
+    valueNode.className = 'ov-plot-stat-value';
+    valueNode.textContent = value;
+    row.appendChild(labelNode);
+    row.appendChild(valueNode);
+    stats.appendChild(row);
+  });
+
+  sidecar.appendChild(stats);
+
+  const legend = createCategoricalLegend(payload) ?? createContinuousLegend(payload);
   if (legend) {
-    root.appendChild(legend);
+    sidecar.appendChild(legend);
   }
+
+  plotLayout.appendChild(sidecar);
+  root.appendChild(plotLayout);
 
   void Promise.resolve().then(() => renderCanvasEmbedding(host, payload)).catch((error) => {
     const errorNode = document.createElement('pre');
