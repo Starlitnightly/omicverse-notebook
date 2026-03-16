@@ -286,16 +286,9 @@
 }
 
 .ov-plot-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
-  gap: 12px;
-  align-items: start;
-}
-
-.ov-plot-sidecar {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .ov-plot-stats,
@@ -307,8 +300,8 @@
 }
 
 .ov-plot-stats {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
@@ -317,6 +310,7 @@
   justify-content: space-between;
   gap: 8px;
   font-size: 10.5px;
+  padding: 2px 0;
 }
 
 .ov-plot-stat-label {
@@ -329,16 +323,25 @@
 }
 
 .ov-legend-title {
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  margin-right: 4px;
   font-size: 10.5px;
   font-weight: 700;
   color: var(--jp-ui-font-color1);
+}
+
+.ov-legend-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
 }
 
 .ov-legend-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
 }
 
 .ov-legend-chip {
@@ -352,6 +355,22 @@
   font-size: 10.5px;
   line-height: 1.7;
   white-space: nowrap;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  transition: opacity 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.ov-legend-chip:hover {
+  border-color: #2563eb;
+}
+
+.ov-legend-chip.is-selected {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.ov-legend-chip.is-dimmed {
+  opacity: 0.32;
 }
 
 .ov-legend-dot {
@@ -367,6 +386,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 260px;
+  min-width: 220px;
 }
 
 .ov-legend-colorbar-bar {
@@ -421,12 +442,6 @@
   height: 10px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.45);
-}
-
-@media (max-width: 900px) {
-  .ov-plot-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 .ov-action-btn.is-active,

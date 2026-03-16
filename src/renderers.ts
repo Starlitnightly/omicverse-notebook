@@ -537,7 +537,11 @@ function getEmbeddingExtents(payload: EmbeddingPayload): {
   };
 }
 
-function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null {
+function createCategoricalLegend(
+  payload: EmbeddingPayload,
+  selectedCodes: Set<number>,
+  onToggle: (code: number | null) => void
+): HTMLElement | null {
   if (payload.color.mode !== 'categorical') {
     return null;
   }
@@ -553,9 +557,25 @@ function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null 
   const chips = document.createElement('div');
   chips.className = 'ov-legend-chips';
 
+  const allItem = document.createElement('button');
+  allItem.type = 'button';
+  allItem.className = 'ov-legend-chip';
+  if (selectedCodes.size === 0) {
+    allItem.classList.add('is-selected');
+  }
+  allItem.textContent = 'All';
+  allItem.onclick = () => onToggle(null);
+  chips.appendChild(allItem);
+
   categorical.labels.forEach((label, index) => {
-    const item = document.createElement('span');
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'ov-legend-chip';
+    if (selectedCodes.has(index)) {
+      item.classList.add('is-selected');
+    } else if (selectedCodes.size > 0) {
+      item.classList.add('is-dimmed');
+    }
 
     const swatch = document.createElement('span');
     swatch.className = 'ov-legend-dot';
@@ -566,6 +586,7 @@ function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null 
 
     item.appendChild(swatch);
     item.appendChild(text);
+    item.onclick = () => onToggle(index);
     chips.appendChild(item);
   });
 
@@ -609,7 +630,7 @@ function createContinuousLegend(payload: EmbeddingPayload): HTMLElement | null {
   return legend;
 }
 
-function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): void {
+function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload, selectedCodes: Set<number> = new Set()): void {
   const dark = isDarkMode();
   const canvas = document.createElement('canvas');
   const width = Math.max(host.clientWidth || 640, 320);
@@ -703,9 +724,15 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): vo
 
   for (let i = 0; i < payload.x.length; i += 1) {
     let color = '#2563eb';
+    let alpha = payload.color.mode === 'continuous' ? 0.84 : 0.78;
     if (payload.color.mode === 'categorical') {
       const categorical = payload.color;
       color = categorical.palette[categorical.codes[i]] ?? '#64748b';
+      if (selectedCodes.size > 0 && !selectedCodes.has(categorical.codes[i])) {
+        alpha = 0.08;
+      } else if (selectedCodes.size > 0) {
+        alpha = 0.95;
+      }
     } else if (payload.color.mode === 'continuous') {
       const continuous = payload.color;
       const value = payload.color.values[i];
@@ -718,7 +745,7 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): vo
 
     ctx.beginPath();
     ctx.fillStyle = color;
-    ctx.globalAlpha = payload.color.mode === 'continuous' ? 0.84 : 0.78;
+    ctx.globalAlpha = alpha;
     ctx.arc(xToCanvas(payload.x[i]), yToCanvas(payload.y[i]), pointSize, 0, Math.PI * 2);
     ctx.fill();
   }
@@ -776,9 +803,9 @@ function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
   const host = document.createElement('div');
   host.className = 'ov-embedding-host';
   plotLayout.appendChild(host);
+  const selectedCodes = new Set<number>();
 
-  const sidecar = document.createElement('aside');
-  sidecar.className = 'ov-plot-sidecar';
+  const renderIntoHost = () => renderCanvasEmbedding(host, payload, selectedCodes);
 
   const stats = document.createElement('div');
   stats.className = 'ov-plot-stats';
@@ -802,18 +829,47 @@ function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
     row.appendChild(valueNode);
     stats.appendChild(row);
   });
+  plotLayout.appendChild(stats);
 
-  sidecar.appendChild(stats);
+  const rerenderLegend = () => {
+    const currentLegend = plotLayout.querySelector('.ov-legend-panel');
+    currentLegend?.remove();
+    const nextLegend =
+      createCategoricalLegend(payload, selectedCodes, (code) => {
+        if (code === null) {
+          selectedCodes.clear();
+        } else if (selectedCodes.has(code)) {
+          selectedCodes.delete(code);
+        } else {
+          selectedCodes.add(code);
+        }
+        rerenderLegend();
+        renderIntoHost();
+      }) ?? createContinuousLegend(payload);
+    if (nextLegend) {
+      plotLayout.appendChild(nextLegend);
+    }
+  };
 
-  const legend = createCategoricalLegend(payload) ?? createContinuousLegend(payload);
+  const legend =
+    createCategoricalLegend(payload, selectedCodes, (code) => {
+      if (code === null) {
+        selectedCodes.clear();
+      } else if (selectedCodes.has(code)) {
+        selectedCodes.delete(code);
+      } else {
+        selectedCodes.add(code);
+      }
+      rerenderLegend();
+      renderIntoHost();
+    }) ?? createContinuousLegend(payload);
   if (legend) {
-    sidecar.appendChild(legend);
+    plotLayout.appendChild(legend);
   }
 
-  plotLayout.appendChild(sidecar);
   root.appendChild(plotLayout);
 
-  void Promise.resolve().then(() => renderCanvasEmbedding(host, payload)).catch((error) => {
+  void Promise.resolve().then(() => renderIntoHost()).catch((error) => {
     const errorNode = document.createElement('pre');
     errorNode.className = 'ov-pre';
     errorNode.textContent = error instanceof Error ? error.message : String(error);

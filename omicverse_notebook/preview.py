@@ -238,26 +238,53 @@ def _resolve_reference_or_expression(target: str, namespace: Mapping[str, Any]) 
     return resolve_expression(target, namespace)
 
 
+_OV_SC_COLOR = [
+    "#1F577B", "#A56BA7", "#E0A7C8", "#E069A6", "#941456",
+    "#FCBC10", "#EF7B77", "#279AD7", "#F0EEF0", "#EAEFC5",
+    "#7CBB5F", "#368650", "#A499CC", "#5E4D9A", "#78C2ED",
+    "#866017", "#9F987F", "#E0DFED", "#01A0A7", "#75C8CC",
+    "#F0D7BC", "#D5B26C", "#D5DA48", "#B6B812", "#9DC3C3",
+    "#A89C92", "#FEE00C", "#FEF2A1",
+]
+
+
+def _color_to_hex(color: Any) -> str:
+    try:
+        import matplotlib.colors as mcolors
+
+        return mcolors.to_hex(color)
+    except Exception:
+        return str(color)
+
+
 def _categorical_color(index: int) -> str:
-    palette = [
-        "#1f77b4",
-        "#ff7f0e",
-        "#2ca02c",
-        "#d62728",
-        "#9467bd",
-        "#8c564b",
-        "#e377c2",
-        "#7f7f7f",
-        "#bcbd22",
-        "#17becf",
-        "#4f46e5",
-        "#059669",
-        "#dc2626",
-        "#ea580c",
-        "#0891b2",
-        "#7c3aed",
-    ]
-    return palette[index % len(palette)]
+    return _OV_SC_COLOR[index % len(_OV_SC_COLOR)]
+
+
+def _get_uns_colors_for_labels(adata: Any, col_name: str, labels: list[str]) -> Optional[list[str]]:
+    key = f"{col_name}_colors"
+    if adata is None or key not in getattr(adata, "uns", {}):
+        return None
+
+    try:
+        uns_colors = list(adata.uns[key])
+        original = adata.obs[col_name]
+        if hasattr(original, "cat"):
+            original_labels = list(original.cat.categories)
+            color_map = {
+                str(label): _color_to_hex(uns_colors[index % len(uns_colors)])
+                for index, label in enumerate(original_labels)
+            }
+            resolved = [color_map.get(label) for label in labels]
+            if all(color is not None for color in resolved):
+                return [str(color) for color in resolved]
+    except Exception:
+        pass
+
+    try:
+        return [_color_to_hex(adata.uns[key][index % len(adata.uns[key])]) for index in range(len(labels))]
+    except Exception:
+        return None
 
 
 def _embedding_candidates(basis: str) -> list[str]:
@@ -388,7 +415,8 @@ def plot_embedding_payload(
         "column": str(column_name),
         "labels": labels,
         "codes": codes,
-        "palette": [_categorical_color(index) for index in range(len(labels))],
+        "palette": _get_uns_colors_for_labels(adata, str(column_name), labels)
+        or [_categorical_color(index) for index in range(len(labels))],
     }
     payload["hover"] = _hover_texts(obs_names, str(column_name), values)
     return payload
