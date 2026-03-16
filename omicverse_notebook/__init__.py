@@ -4,6 +4,7 @@ from .preview import (
     DATAFRAME_MIME_TYPE,
     enable_formatters,
     load_ipython_extension,
+    preview_anndata_slot,
     preview_value,
     preview_variable,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "DATAFRAME_MIME_TYPE",
     "enable_formatters",
     "load_ipython_extension",
+    "preview_anndata_slot",
     "preview_value",
     "preview_variable",
 ]

@@ -1,6 +1,7 @@
 import { Widget } from '@lumino/widgets';
 import { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { getSessionContext } from './session';
+import { getPreviewUpdateAction } from './previewState';
 
 export const DATAFRAME_MIME_TYPE = 'application/vnd.omicverse.dataframe+json';
 export const ANNDATA_MIME_TYPE = 'application/vnd.omicverse.anndata+json';
@@ -82,6 +83,9 @@ type AnnDataSummary = {
   obsm_keys: string[];
   obsm_keys_total: number;
   obsm_keys_more: number;
+  embedding_keys: string[];
+  embedding_keys_total: number;
+  embedding_keys_more: number;
   layers: string[];
   layers_total: number;
   layers_more: number;
@@ -110,6 +114,27 @@ type KeyClickHandler = (
   key: string,
   trigger: HTMLElement
 ) => boolean | Promise<boolean>;
+
+const DEBUG_STORAGE_KEY = 'omicverse:notebook:debug';
+
+function isDebugEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(DEBUG_STORAGE_KEY) === '1';
+  } catch (_error) {
+    return false;
+  }
+}
+
+function debugLog(event: string, payload?: unknown): void {
+  if (!isDebugEnabled()) {
+    return;
+  }
+  if (payload === undefined) {
+    console.debug(`[omicverse-notebook] ${event}`);
+    return;
+  }
+  console.debug(`[omicverse-notebook] ${event}`, payload);
+}
 
 function dtypeClass(dtype: string | undefined): string {
   if (!dtype) {
@@ -269,17 +294,17 @@ function setPreviewContent(
   content: HTMLElement | null,
   sourceKey: string | null,
   trigger?: HTMLElement | null,
-  activeClass = 'is-active'
+  activeClass = 'is-active',
+  replaceExisting = false
 ): void {
   const currentKey = previewHost.dataset.activeSource ?? '';
-  const isSameSource = !!sourceKey && currentKey === sourceKey;
 
   const activeEl = previewHost._activeTrigger as HTMLElement | undefined;
   if (activeEl) {
     activeEl.classList.remove(activeClass);
   }
 
-  if (isSameSource || !content || !sourceKey) {
+  if (getPreviewUpdateAction(currentKey, sourceKey, !!content, replaceExisting) === 'clear') {
     previewHost.replaceChildren();
     previewHost.classList.remove('has-content');
     previewHost.dataset.activeSource = '';
@@ -287,9 +312,9 @@ function setPreviewContent(
     return;
   }
 
-  previewHost.replaceChildren(content);
+  previewHost.replaceChildren(content!);
   previewHost.classList.add('has-content');
-  previewHost.dataset.activeSource = sourceKey;
+  previewHost.dataset.activeSource = sourceKey ?? '';
   previewHost._activeTrigger = trigger ?? null;
   if (trigger) {
     trigger.classList.add(activeClass);
@@ -326,6 +351,7 @@ async function requestKernelJson(code: string): Promise<unknown> {
     code,
     `print(${JSON.stringify(endMarker)})`
   ].join('\n');
+  debugLog('requestKernelJson:start', { code });
 
   let streamOutput = '';
   let executionError = '';
@@ -351,6 +377,7 @@ async function requestKernelJson(code: string): Promise<unknown> {
 
   await future.done;
   if (executionError) {
+    debugLog('requestKernelJson:error', { executionError });
     if (executionError.includes('Kernel does not exist')) {
       throw new Error('Kernel is no longer available. Re-run the cell after the kernel finishes restarting.');
     }
@@ -360,11 +387,14 @@ async function requestKernelJson(code: string): Promise<unknown> {
   const start = streamOutput.indexOf(startMarker);
   const end = streamOutput.indexOf(endMarker);
   if (start === -1 || end === -1 || end <= start) {
+    debugLog('requestKernelJson:missing-payload', { streamOutput });
     throw new Error('Kernel response did not include a JSON payload.');
   }
 
   const jsonText = streamOutput.slice(start + startMarker.length, end).trim();
-  return JSON.parse(jsonText);
+  const parsed = JSON.parse(jsonText);
+  debugLog('requestKernelJson:success', { parsed });
+  return parsed;
 }
 
 async function requestEmbeddingPayload(
@@ -381,6 +411,22 @@ async function requestEmbeddingPayload(
     ].join('\n')
   );
   return payload as EmbeddingPayload;
+}
+
+async function requestAnnDataSlotPayload(
+  target: string,
+  slot: 'obs' | 'var' | 'uns' | 'obsm' | 'layers',
+  key?: string
+): Promise<SupportedPayload> {
+  const payload = await requestKernelJson(
+    [
+      'from omicverse_notebook.preview import preview_anndata_slot',
+      `print(json.dumps(preview_anndata_slot(${JSON.stringify(target)}, slot=${JSON.stringify(
+        slot
+      )}, key=${key ? JSON.stringify(key) : 'None'}), ensure_ascii=False))`
+    ].join('\n')
+  );
+  return payload as SupportedPayload;
 }
 
 function renderDataFramePayload(payload: DataFramePayload, options: { withFooter?: boolean } = {}): HTMLElement {
@@ -438,137 +484,212 @@ function renderContentPayload(payload: ContentPayload): HTMLElement {
   return root;
 }
 
-let plotlyModulePromise: Promise<any> | null = null;
-
-async function loadPlotly(): Promise<any> {
-  if (!plotlyModulePromise) {
-    plotlyModulePromise = import('plotly.js-dist-min').then((mod) => mod.default ?? mod);
-  }
-  return plotlyModulePromise;
+function interpolateColor(a: string, b: string, t: number): string {
+  const parse = (hex: string) => {
+    const value = hex.replace('#', '');
+    return [
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16)
+    ];
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const mix = (start: number, end: number) => Math.round(start + (end - start) * t);
+  return `rgb(${mix(ar, br)}, ${mix(ag, bg)}, ${mix(ab, bb)})`;
 }
 
-async function renderPlotlyEmbedding(host: HTMLElement, payload: EmbeddingPayload): Promise<void> {
-  const Plotly = await loadPlotly();
-  const dark = isDarkMode();
-  const size = payload.shown_points > 40000 ? 2 : payload.shown_points > 12000 ? 3 : 4;
+function viridisColor(t: number): string {
+  const stops = [
+    '#440154',
+    '#414487',
+    '#2a788e',
+    '#22a884',
+    '#7ad151',
+    '#fde725'
+  ];
+  const clamped = Math.max(0, Math.min(0.999999, t));
+  const scaled = clamped * (stops.length - 1);
+  const index = Math.floor(scaled);
+  const fraction = scaled - index;
+  return interpolateColor(stops[index], stops[index + 1] ?? stops[index], fraction);
+}
 
-  let traces: Array<Record<string, unknown>> = [];
-
-  if (payload.color.mode === 'categorical') {
-    const categorical = payload.color;
-    traces = categorical.labels.map((label, code) => {
-      const x: number[] = [];
-      const y: number[] = [];
-      const text: string[] = [];
-      categorical.codes.forEach((entryCode: number, index: number) => {
-        if (entryCode === code) {
-          x.push(payload.x[index]);
-          y.push(payload.y[index]);
-          text.push(payload.hover?.[index] ?? `cell ${index}`);
-        }
-      });
-      return {
-        x,
-        y,
-        text,
-        mode: 'markers',
-        type: 'scattergl',
-        name: label,
-        hovertemplate: '%{text}<extra></extra>',
-        marker: {
-          color: categorical.palette[code] ?? '#64748b',
-          size,
-          opacity: 0.78
-        }
-      };
-    });
-  } else if (payload.color.mode === 'continuous') {
-    traces = [
-      {
-        x: payload.x,
-        y: payload.y,
-        text: payload.hover ?? [],
-        mode: 'markers',
-        type: 'scattergl',
-        hovertemplate: '%{text}<extra></extra>',
-        marker: {
-          color: payload.color.values,
-          colorscale: 'Viridis',
-          showscale: true,
-          colorbar: {
-            title: payload.color.column,
-            thickness: 12
-          },
-          cmin: payload.color.min ?? undefined,
-          cmax: payload.color.max ?? undefined,
-          size,
-          opacity: 0.8
-        },
-        showlegend: false
-      }
-    ];
-  } else {
-    traces = [
-      {
-        x: payload.x,
-        y: payload.y,
-        text: payload.hover ?? [],
-        mode: 'markers',
-        type: 'scattergl',
-        hovertemplate: '%{text}<extra></extra>',
-        marker: {
-          color: '#2563eb',
-          size,
-          opacity: 0.78
-        },
-        showlegend: false
-      }
-    ];
+function drawContinuousColorbar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  min: number | null,
+  max: number | null,
+  dark: boolean,
+  label: string
+): void {
+  const gradient = ctx.createLinearGradient(0, y + height, 0, y);
+  for (let i = 0; i <= 10; i += 1) {
+    gradient.addColorStop(i / 10, viridisColor(i / 10));
   }
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = dark ? '#475569' : '#cbd5e1';
+  ctx.strokeRect(x, y, width, height);
+  ctx.fillStyle = dark ? '#e5e7eb' : '#334155';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(label, x - 6, y - 8);
+  if (max !== null) {
+    ctx.fillText(String(Number(max.toFixed(3))), x + width + 6, y + 4);
+  }
+  if (min !== null) {
+    ctx.fillText(String(Number(min.toFixed(3))), x + width + 6, y + height);
+  }
+}
 
-  const layout = {
-    autosize: true,
-    height: 420,
-    dragmode: 'pan',
-    showlegend: payload.color.mode === 'categorical',
-    paper_bgcolor: dark ? '#111827' : '#ffffff',
-    plot_bgcolor: dark ? '#111827' : '#ffffff',
-    margin: { l: 48, r: payload.color.mode === 'continuous' ? 56 : 18, t: 18, b: 42 },
-    font: {
-      color: dark ? '#e5e7eb' : '#1f2937'
-    },
-    xaxis: {
-      title: `${payload.basis}_1`,
-      showgrid: false,
-      zeroline: false,
-      color: dark ? '#e5e7eb' : '#334155'
-    },
-    yaxis: {
-      title: `${payload.basis}_2`,
-      showgrid: false,
-      zeroline: false,
-      color: dark ? '#e5e7eb' : '#334155'
-    },
-    legend: {
-      orientation: 'v',
-      yanchor: 'top',
-      y: 1,
-      xanchor: 'left',
-      x: 1.02,
-      bgcolor: dark ? 'rgba(17,24,39,0.82)' : 'rgba(255,255,255,0.88)',
-      bordercolor: dark ? '#334155' : '#cbd5e1',
-      borderwidth: 1
+function createCategoricalLegend(payload: EmbeddingPayload): HTMLElement | null {
+  if (payload.color.mode !== 'categorical') {
+    return null;
+  }
+  const categorical = payload.color;
+
+  const legend = document.createElement('div');
+  legend.className = 'ov-embedding-legend';
+
+  categorical.labels.forEach((label, index) => {
+    const item = document.createElement('div');
+    item.className = 'ov-embedding-legend-item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'ov-embedding-legend-swatch';
+    swatch.style.background = categorical.palette[index] ?? '#64748b';
+
+    const text = document.createElement('span');
+    text.textContent = label;
+
+    item.appendChild(swatch);
+    item.appendChild(text);
+    legend.appendChild(item);
+  });
+
+  return legend;
+}
+
+function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload): void {
+  const dark = isDarkMode();
+  const canvas = document.createElement('canvas');
+  const width = Math.max(host.clientWidth || 720, 320);
+  const dpr = window.devicePixelRatio || 1;
+  const margin = {
+    top: 18,
+    right: payload.color.mode === 'continuous' ? 82 : 18,
+    bottom: 42,
+    left: 48
+  };
+
+  const minX = Math.min(...payload.x);
+  const maxX = Math.max(...payload.x);
+  const minY = Math.min(...payload.y);
+  const maxY = Math.max(...payload.y);
+  const spanX = Math.max(maxX - minX, 1e-9);
+  const spanY = Math.max(maxY - minY, 1e-9);
+  const plotWidth = width - margin.left - margin.right;
+  const aspectRatio = spanY / spanX;
+  const plotHeight = Math.max(240, Math.min(Math.round(plotWidth * aspectRatio), 640));
+  const height = margin.top + plotHeight + margin.bottom;
+  const pointSize = payload.shown_points > 40000 ? 1.5 : payload.shown_points > 12000 ? 2.2 : 3.2;
+
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  host.style.minHeight = `${height}px`;
+  host.replaceChildren(canvas);
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Canvas rendering is unavailable in this browser.');
+  }
+  ctx.scale(dpr, dpr);
+  debugLog('embedding:render', {
+    basis: payload.basis,
+    width,
+    height,
+    minX,
+    maxX,
+    minY,
+    maxY,
+    spanX,
+    spanY
+  });
+
+  const xToCanvas = (value: number) => margin.left + ((value - minX) / spanX) * plotWidth;
+  const yToCanvas = (value: number) => margin.top + plotHeight - ((value - minY) / spanY) * plotHeight;
+
+  ctx.fillStyle = dark ? '#111827' : '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = dark ? '#334155' : '#cbd5e1';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(margin.left, margin.top, plotWidth, plotHeight);
+
+  ctx.fillStyle = dark ? '#e5e7eb' : '#334155';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${payload.basis}_1`, margin.left + plotWidth / 2, height - 10);
+  ctx.textAlign = 'left';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(String(Number(minX.toFixed(3))), margin.left, height - 24);
+  ctx.textAlign = 'right';
+  ctx.fillText(String(Number(maxX.toFixed(3))), margin.left + plotWidth, height - 24);
+
+  ctx.save();
+  ctx.translate(16, margin.top + plotHeight / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`${payload.basis}_2`, 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(String(Number(maxY.toFixed(3))), 4, margin.top + 6);
+  ctx.fillText(String(Number(minY.toFixed(3))), 4, margin.top + plotHeight);
+
+  for (let i = 0; i < payload.x.length; i += 1) {
+    let color = '#2563eb';
+    if (payload.color.mode === 'categorical') {
+      const categorical = payload.color;
+      color = categorical.palette[categorical.codes[i]] ?? '#64748b';
+    } else if (payload.color.mode === 'continuous') {
+      const continuous = payload.color;
+      const value = payload.color.values[i];
+      const min = continuous.min;
+      const max = continuous.max;
+      const ratio =
+        value === null || min === null || max === null || max <= min ? 0.5 : (value - min) / (max - min);
+      color = viridisColor(ratio);
     }
-  };
 
-  const config = {
-    responsive: true,
-    displaylogo: false,
-    scrollZoom: true,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d']
-  };
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = payload.color.mode === 'continuous' ? 0.84 : 0.78;
+    ctx.arc(xToCanvas(payload.x[i]), yToCanvas(payload.y[i]), pointSize, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 
-  await Plotly.react(host, traces, layout, config);
+  if (payload.color.mode === 'continuous') {
+    drawContinuousColorbar(
+      ctx,
+      width - margin.right + 24,
+      margin.top + 12,
+      12,
+      plotHeight - 24,
+      payload.color.min,
+      payload.color.max,
+      dark,
+      payload.color.column
+    );
+  }
 }
 
 function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
@@ -617,10 +738,15 @@ function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
   }
 
   const host = document.createElement('div');
-  host.className = 'ov-plotly-host';
+  host.className = 'ov-embedding-host';
   root.appendChild(host);
 
-  void renderPlotlyEmbedding(host, payload).catch((error) => {
+  const legend = createCategoricalLegend(payload);
+  if (legend) {
+    root.appendChild(legend);
+  }
+
+  void Promise.resolve().then(() => renderCanvasEmbedding(host, payload)).catch((error) => {
     const errorNode = document.createElement('pre');
     errorNode.className = 'ov-pre';
     errorNode.textContent = error instanceof Error ? error.message : String(error);
@@ -630,14 +756,24 @@ function renderEmbeddingPayload(payload: EmbeddingPayload): HTMLElement {
   return root;
 }
 
-function pickUMAPKey(keys: string[]): string | null {
-  const priority = ['X_umap', 'UMAP', 'umap'];
+function createLabeledPreview(label: string, payload: SupportedPayload): HTMLElement {
+  const container = document.createElement('div');
+  const header = document.createElement('div');
+  header.className = 'ov-meta';
+  header.textContent = label;
+  container.appendChild(header);
+  container.appendChild(renderPayload(payload, true));
+  return container;
+}
+
+function pickPreferredEmbeddingKey(keys: string[]): string | null {
+  const priority = ['X_umap', 'UMAP', 'umap', 'X_pca', 'PCA', 'pca'];
   for (const key of priority) {
     if (keys.includes(key)) {
       return key;
     }
   }
-  return keys.find((key) => key.toLowerCase().includes('umap')) ?? null;
+  return keys.find((key) => key.toLowerCase().includes('umap')) ?? keys[0] ?? null;
 }
 
 function createAnnDataSection(
@@ -681,13 +817,12 @@ function createAnnDataSection(
             setPreviewContent(previewHost as PreviewHostElement, note, `${slot}:${key}`, chip);
             return;
           }
-          const container = document.createElement('div');
-          const header = document.createElement('div');
-          header.className = 'ov-meta';
-          header.textContent = `${slot}["${key}"]`;
-          container.appendChild(header);
-          container.appendChild(renderPayload(preview, true));
-          setPreviewContent(previewHost as PreviewHostElement, container, `${slot}:${key}`, chip);
+          setPreviewContent(
+            previewHost as PreviewHostElement,
+            createLabeledPreview(`${slot}["${key}"]`, preview),
+            `${slot}:${key}`,
+            chip
+          );
         })();
       };
     }
@@ -739,15 +874,51 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
 
   root.appendChild(card);
 
-  const actions = document.createElement('div');
-  actions.className = 'ov-actions';
+  const actionGroups = document.createElement('div');
+  actionGroups.className = 'ov-action-groups';
+
+  const previewActions = document.createElement('div');
+  previewActions.className = 'ov-actions';
+
+  const embeddingActions = document.createElement('div');
+  embeddingActions.className = 'ov-actions';
+
+  const colorActions = document.createElement('div');
+  colorActions.className = 'ov-actions ov-subactions';
 
   const previewHost = document.createElement('div') as PreviewHostElement;
   previewHost.className = 'ov-preview-host';
 
   const target = payload.ref ?? payload.name ?? '';
-  const umapKey = pickUMAPKey(payload.summary.obsm_keys);
+  const embeddingKeys = payload.summary.embedding_keys;
+  const preferredEmbeddingKey = pickPreferredEmbeddingKey(embeddingKeys);
   let requestNonce = 0;
+  let activeEmbeddingBasis: string | null = null;
+  let activeEmbeddingColorBy: string | undefined;
+  let activeEmbeddingButton: HTMLButtonElement | null = null;
+
+  const resetEmbeddingState = () => {
+    activeEmbeddingBasis = null;
+    activeEmbeddingColorBy = undefined;
+    activeEmbeddingButton = null;
+    colorActions.replaceChildren();
+    colorActions.classList.remove('has-content');
+  };
+
+  const addActionGroup = (label: string, buttons: HTMLElement) => {
+    if (!buttons.childNodes.length) {
+      return;
+    }
+    const group = document.createElement('div');
+    group.className = 'ov-action-group';
+
+    const title = document.createElement('span');
+    title.className = 'ov-actions-label';
+    title.textContent = label;
+    group.appendChild(title);
+    group.appendChild(buttons);
+    actionGroups.appendChild(group);
+  };
 
   const showEmbedding = async (
     basis: string,
@@ -757,18 +928,27 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
   ): Promise<boolean> => {
     if (!target) {
       const errorNode = createLoadingNode('This AnnData preview has no kernel reference. Use the inspector panel on a named variable.');
+      resetEmbeddingState();
       setPreviewContent(previewHost, errorNode, sourceKey, trigger);
       return true;
     }
 
     if (previewHost.dataset.activeSource === sourceKey) {
       requestNonce += 1;
+      debugLog('embedding:toggle-off', { basis, colorBy, sourceKey });
+      resetEmbeddingState();
       setPreviewContent(previewHost, null, null, trigger);
       return true;
     }
 
+    activeEmbeddingBasis = basis;
+    activeEmbeddingColorBy = colorBy;
+    activeEmbeddingButton = trigger as HTMLButtonElement;
+    debugLog('embedding:load', { basis, colorBy, sourceKey, target });
+
     const loadingNode = createLoadingNode(`Loading ${basis}${colorBy ? ` colored by ${colorBy}` : ''} ...`);
     setPreviewContent(previewHost, loadingNode, sourceKey, trigger);
+    updateColorActions();
 
     const currentNonce = ++requestNonce;
     try {
@@ -776,20 +956,126 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       if (currentNonce !== requestNonce || previewHost.dataset.activeSource !== sourceKey) {
         return true;
       }
-      setPreviewContent(previewHost, renderEmbeddingPayload(embedding), sourceKey, trigger);
+      debugLog('embedding:loaded', {
+        basis: embedding.basis,
+        colorMode: embedding.color.mode,
+        shownPoints: embedding.shown_points
+      });
+      setPreviewContent(previewHost, renderEmbeddingPayload(embedding), sourceKey, trigger, 'is-active', true);
     } catch (error) {
       if (currentNonce !== requestNonce || previewHost.dataset.activeSource !== sourceKey) {
         return true;
       }
+      debugLog('embedding:failed', { basis, colorBy, error });
       const errorNode = document.createElement('pre');
       errorNode.className = 'ov-pre';
       errorNode.textContent = error instanceof Error ? error.message : String(error);
-      setPreviewContent(previewHost, errorNode, sourceKey, trigger);
+      setPreviewContent(previewHost, errorNode, sourceKey, trigger, 'is-active', true);
     }
     return true;
   };
 
-  const addPreviewButton = (label: string, preview: DataFramePayload | undefined) => {
+  const updateColorActions = () => {
+    colorActions.replaceChildren();
+    colorActions.classList.remove('has-content');
+    if (!activeEmbeddingBasis) {
+      return;
+    }
+
+    const label = document.createElement('span');
+    label.className = 'ov-actions-label';
+    label.textContent = `Color ${activeEmbeddingBasis} by obs`;
+    colorActions.appendChild(label);
+
+    const addColorButton = (buttonLabel: string, colorBy?: string) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ov-action-btn ov-action-btn--compact';
+      button.textContent = buttonLabel;
+      if ((colorBy ?? '') === (activeEmbeddingColorBy ?? '')) {
+        button.classList.add('is-active');
+      }
+      button.onclick = () => {
+        if (!activeEmbeddingBasis || !activeEmbeddingButton) {
+          return;
+        }
+        void showEmbedding(
+          activeEmbeddingBasis,
+          colorBy,
+          activeEmbeddingButton,
+          `embedding:${activeEmbeddingBasis}:${colorBy ?? 'default'}`
+        );
+      };
+      colorActions.appendChild(button);
+    };
+
+    addColorButton('Default');
+    payload.summary.obs_columns.forEach((column) => addColorButton(column, `obs:${column}`));
+
+    if (payload.summary.obs_columns_more > 0) {
+      const moreBadge = document.createElement('span');
+      moreBadge.className = 'ov-chip-more';
+      moreBadge.textContent = `+${payload.summary.obs_columns_more} more`;
+      colorActions.appendChild(moreBadge);
+    }
+
+    colorActions.classList.add('has-content');
+  };
+
+  const showSlotPreview = async (
+    slot: 'obs' | 'var' | 'uns' | 'obsm' | 'layers',
+    key: string,
+    trigger: HTMLElement,
+    sourceKey = `${slot}:${key}`
+  ): Promise<boolean> => {
+    if (!target) {
+      const errorNode = createLoadingNode('This AnnData preview has no kernel reference. Use the inspector panel on a named variable.');
+      resetEmbeddingState();
+      setPreviewContent(previewHost, errorNode, sourceKey, trigger);
+      return true;
+    }
+
+    if (previewHost.dataset.activeSource === sourceKey) {
+      requestNonce += 1;
+      debugLog('slot:toggle-off', { slot, key, sourceKey });
+      setPreviewContent(previewHost, null, null, trigger);
+      return true;
+    }
+
+    resetEmbeddingState();
+    debugLog('slot:load', { slot, key, sourceKey, target });
+    const loadingNode = createLoadingNode(`Loading ${slot}["${key}"] ...`);
+    setPreviewContent(previewHost, loadingNode, sourceKey, trigger);
+
+    const currentNonce = ++requestNonce;
+    try {
+      const slotPayload = await requestAnnDataSlotPayload(target, slot, key);
+      if (currentNonce !== requestNonce || previewHost.dataset.activeSource !== sourceKey) {
+        return true;
+      }
+      debugLog('slot:loaded', { slot, key, type: slotPayload.type });
+      setPreviewContent(
+        previewHost,
+        createLabeledPreview(`${slot}["${key}"]`, slotPayload),
+        sourceKey,
+        trigger,
+        'is-active',
+        true
+      );
+    } catch (error) {
+      if (currentNonce !== requestNonce || previewHost.dataset.activeSource !== sourceKey) {
+        return true;
+      }
+      debugLog('slot:failed', { slot, key, error });
+      const errorNode = document.createElement('pre');
+      errorNode.className = 'ov-pre';
+      errorNode.textContent = error instanceof Error ? error.message : String(error);
+      setPreviewContent(previewHost, errorNode, sourceKey, trigger, 'is-active', true);
+    }
+    return true;
+  };
+
+  const addPreviewButton = (label: string, preview: DataFramePayload | undefined, sourceKey: string) => {
     if (!preview) {
       return;
     }
@@ -798,34 +1084,42 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
     button.className = 'ov-action-btn';
     button.textContent = label;
     button.onclick = () => {
+      resetEmbeddingState();
+      debugLog('summary:preview', { label, sourceKey });
       setPreviewContent(
         previewHost,
         renderDataFramePayload(preview, { withFooter: true }),
-        label,
+        sourceKey,
         button,
         'is-active'
       );
     };
-    actions.appendChild(button);
+    previewActions.appendChild(button);
   };
 
-  addPreviewButton('Preview .obs', payload.previews?.obs);
-  addPreviewButton('Preview .var', payload.previews?.var);
+  addPreviewButton('Preview .obs', payload.previews?.obs, 'summary:obs');
+  addPreviewButton('Preview .var', payload.previews?.var, 'summary:var');
 
-  if (umapKey) {
-    const umapButton = document.createElement('button');
-    umapButton.type = 'button';
-    umapButton.className = 'ov-action-btn';
-    umapButton.textContent = `UMAP (${umapKey})`;
-    umapButton.onclick = () => {
-      void showEmbedding(umapKey, undefined, umapButton, `embedding:${umapKey}:default`);
+  embeddingKeys.forEach((basis) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ov-action-btn';
+    button.textContent = basis === preferredEmbeddingKey ? `Plot ${basis}` : basis;
+    button.onclick = () => {
+      void showEmbedding(basis, undefined, button, `embedding:${basis}:default`);
     };
-    actions.appendChild(umapButton);
+    embeddingActions.appendChild(button);
+  });
+
+  if (payload.summary.embedding_keys_more > 0) {
+    const moreBadge = document.createElement('span');
+    moreBadge.className = 'ov-chip-more';
+    moreBadge.textContent = `+${payload.summary.embedding_keys_more} more`;
+    embeddingActions.appendChild(moreBadge);
   }
 
-  if (actions.childNodes.length) {
-    root.appendChild(actions);
-  }
+  addActionGroup('Browse', previewActions);
+  addActionGroup('Visualize', embeddingActions);
 
   const rows = document.createElement('div');
   rows.className = 'ov-adata-lines';
@@ -838,10 +1132,7 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       payload.summary.obs_columns_more,
       previewHost,
       undefined,
-      umapKey
-        ? async (_slot, key, trigger) =>
-            showEmbedding(umapKey, `obs:${key}`, trigger, `embedding:${umapKey}:obs:${key}`)
-        : undefined
+      async (_slot, key, trigger) => showSlotPreview('obs', key, trigger)
     )
   );
 
@@ -851,7 +1142,9 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'var',
       payload.summary.var_columns,
       payload.summary.var_columns_more,
-      previewHost
+      previewHost,
+      undefined,
+      async (_slot, key, trigger) => showSlotPreview('var', key, trigger)
     )
   );
 
@@ -862,7 +1155,8 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       payload.summary.uns_keys,
       payload.summary.uns_keys_more,
       previewHost,
-      payload.previews?.uns
+      undefined,
+      async (_slot, key, trigger) => showSlotPreview('uns', key, trigger)
     )
   );
 
@@ -873,15 +1167,8 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       payload.summary.obsm_keys,
       payload.summary.obsm_keys_more,
       previewHost,
-      payload.previews?.obsm,
-      umapKey
-        ? async (_slot, key, trigger) => {
-            if (key !== umapKey) {
-              return false;
-            }
-            return showEmbedding(key, undefined, trigger, `embedding:${key}:default`);
-          }
-        : undefined
+      undefined,
+      async (_slot, key, trigger) => showSlotPreview('obsm', key, trigger)
     )
   );
 
@@ -892,11 +1179,16 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       payload.summary.layers,
       payload.summary.layers_more,
       previewHost,
-      payload.previews?.layers
+      undefined,
+      async (_slot, key, trigger) => showSlotPreview('layers', key, trigger)
     )
   );
 
+  if (actionGroups.childNodes.length) {
+    root.appendChild(actionGroups);
+  }
   root.appendChild(rows);
+  root.appendChild(colorActions);
   root.appendChild(previewHost);
   return root;
 }

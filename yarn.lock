@@ -3601,7 +3601,6 @@ __metadata:
     "@jupyterlab/rendermime-interfaces": ~3.12.6
     "@jupyterlab/services": ~7.4.6
     "@lumino/widgets": ^2.5.0
-    plotly.js-dist-min: ^3.4.0
     rimraf: ^5.0.10
     typescript: ~5.7.3
   languageName: unknown
@@ -3729,13 +3728,6 @@ __metadata:
   dependencies:
     find-up: ^4.0.0
   checksum: 9863e3f35132bf99ae1636d31ff1e1e3501251d480336edb1c211133c8d58906bed80f154a1d723652df1fda91e01c7442c2eeaf9dc83157c7ae89087e43c8d6
-  languageName: node
-  linkType: hard
-
-"plotly.js-dist-min@npm:^3.4.0":
-  version: 3.4.0
-  resolution: "plotly.js-dist-min@npm:3.4.0"
-  checksum: 80a806a90426d332847492a346da591a438a6ae07d7a460c33db22f0ced15ebac3c8add160c25be0950a1b56dac31a4764da24f42b573fcd3501fe8c63d50bda
   languageName: node
   linkType: hard
 

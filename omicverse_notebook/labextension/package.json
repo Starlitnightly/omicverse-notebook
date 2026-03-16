@@ -39,8 +39,7 @@
     "@jupyterlab/notebook": "~4.4.6",
     "@jupyterlab/rendermime-interfaces": "~3.12.6",
     "@jupyterlab/services": "~7.4.6",
-    "@lumino/widgets": "^2.5.0",
-    "plotly.js-dist-min": "^3.4.0"
+    "@lumino/widgets": "^2.5.0"
   },
   "devDependencies": {
     "@jupyterlab/builder": "~4.4.6",
@@ -52,7 +51,7 @@
     "mimeExtension": "lib/mime.js",
     "outputDir": "omicverse_notebook/labextension",
     "_build": {
-      "load": "static/remoteEntry.6a6ad107f13857180c0e.js",
+      "load": "static/remoteEntry.304471d1bc2b059cb4fe.js",
       "extension": "./extension",
       "mimeExtension": "./mimeExtension",
       "style": "./style"

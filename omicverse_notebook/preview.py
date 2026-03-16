@@ -120,6 +120,26 @@ def _pack_keys(keys: Any, limit: int) -> Dict[str, Any]:
     }
 
 
+def _is_embedding_like(value: Any) -> bool:
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return False
+    try:
+        return len(shape) >= 2 and int(shape[1]) >= 2
+    except Exception:
+        return False
+
+
+def _pack_embedding_keys(mapping: Mapping[str, Any], limit: int) -> Dict[str, Any]:
+    values = [str(key) for key, value in mapping.items() if _is_embedding_like(value)]
+    kept = values[:limit]
+    return {
+        "keys": kept,
+        "total": len(values),
+        "more": max(0, len(values) - len(kept)),
+    }
+
+
 def _mapping_previews(
     mapping: Mapping[str, Any],
     slot_name: str,
@@ -152,6 +172,7 @@ def _anndata_payload(
     var_pack = _pack_keys(value.var.columns, key_limit)
     uns_pack = _pack_keys(value.uns.keys() if getattr(value, "uns", None) else [], key_limit)
     obsm_pack = _pack_keys(value.obsm.keys() if getattr(value, "obsm", None) else [], key_limit)
+    embedding_pack = _pack_embedding_keys(value.obsm, key_limit) if getattr(value, "obsm", None) else _pack_keys([], key_limit)
     layers_pack = _pack_keys(value.layers.keys() if getattr(value, "layers", None) else [], key_limit)
 
     return {
@@ -171,6 +192,9 @@ def _anndata_payload(
             "obsm_keys": obsm_pack["keys"],
             "obsm_keys_total": obsm_pack["total"],
             "obsm_keys_more": obsm_pack["more"],
+            "embedding_keys": embedding_pack["keys"],
+            "embedding_keys_total": embedding_pack["total"],
+            "embedding_keys_more": embedding_pack["more"],
             "layers": layers_pack["keys"],
             "layers_total": layers_pack["total"],
             "layers_more": layers_pack["more"],
@@ -368,6 +392,49 @@ def plot_embedding_payload(
     }
     payload["hover"] = _hover_texts(obs_names, str(column_name), values)
     return payload
+
+
+def _resolve_anndata_slot_value(adata: Any, slot: str, key: Optional[str] = None) -> Any:
+    slot = str(slot)
+    if slot in {"obs", "var"}:
+        frame = getattr(adata, slot)
+        if key is None:
+            return frame
+        if key not in frame.columns:
+            raise KeyError(f'Column "{key}" not found in adata.{slot}')
+        return frame[key]
+
+    if slot in {"uns", "obsm", "layers"}:
+        mapping = getattr(adata, slot)
+        if key is None:
+            return mapping
+        if key not in mapping:
+            raise KeyError(f'Key "{key}" not found in adata.{slot}')
+        return mapping[key]
+
+    raise KeyError(f'Unsupported AnnData slot "{slot}"')
+
+
+def preview_anndata_slot(
+    target: str,
+    slot: str,
+    key: Optional[str] = None,
+    namespace: Optional[Mapping[str, Any]] = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    if namespace is None:
+        ipython = get_ipython()  # type: ignore[name-defined]
+        if ipython is None:
+            raise RuntimeError("No active IPython shell was found")
+        namespace = ipython.user_ns
+
+    adata = _resolve_reference_or_expression(target, namespace)
+    if adata.__class__.__name__ != "AnnData":
+        raise TypeError("Target is not an AnnData object")
+
+    value = _resolve_anndata_slot_value(adata, slot, key)
+    label = f'adata.{slot}' if key is None else f'adata.{slot}["{key}"]'
+    return preview_value(value, name=label, **kwargs)
 
 
 def preview_value(
