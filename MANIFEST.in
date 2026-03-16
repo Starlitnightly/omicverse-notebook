@@ -1,0 +1,7 @@
+include README.md
+include install.json
+recursive-include omicverse_notebook *.py
+recursive-include omicverse_notebook/labextension *
+recursive-include src *.ts
+recursive-include style *.css
+recursive-include style *.js

@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.25.0", "jupyterlab>=4,<5"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omicverse-notebook"
+version = "0.1.0"
+description = "OmicVerse-inspired DataFrame and AnnData previews for JupyterLab"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "OpenAI Codex" }
+]
+dependencies = [
+  "pandas>=1.5"
+]
+
+[project.optional-dependencies]
+anndata = [
+  "anndata>=0.9"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["omicverse_notebook"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["omicverse_notebook/labextension"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"omicverse_notebook/labextension/static" = "share/jupyter/labextensions/omicverse-notebook/static"
+"omicverse_notebook/labextension/package.json" = "share/jupyter/labextensions/omicverse-notebook/package.json"
+"install.json" = "share/jupyter/labextensions/omicverse-notebook/install.json"
+
+[tool.hatch.build.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.9"]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = [
+  "omicverse_notebook/labextension/static/style.js",
+  "omicverse_notebook/labextension/package.json"
+]
+skip-if-exists = ["omicverse_notebook/labextension/static/style.js"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build:prod"
+npm = ["jlpm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install:extension"
+npm = ["jlpm"]
+source_dir = "src"
+build_dir = "omicverse_notebook/labextension"

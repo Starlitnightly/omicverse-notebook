@@ -1,0 +1,366 @@
+.ov-renderer,
+.ov-inspector-shell {
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+}
+
+.ov-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ov-card {
+  background: #f0f4ff;
+  border: 1px solid #c5d0f5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--jp-code-font-family);
+  font-size: 12px;
+  color: #283c50;
+  line-height: 1.45;
+}
+
+.ov-card-title {
+  font-weight: 700;
+  color: #1a3cc4;
+  font-size: 12px;
+}
+
+.ov-card-shape {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: #dde8ff;
+  border: 1px solid #99b0f0;
+  color: #1a3cc4;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ov-card-name {
+  margin-top: 4px;
+  color: #475569;
+  font-size: 11px;
+}
+
+.ov-df-card {
+  padding-bottom: 6px;
+}
+
+.ov-adata-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-family: var(--jp-code-font-family);
+}
+
+.ov-adata-chip,
+.ov-action-btn,
+.ov-inspector-button {
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+}
+
+.ov-adata-chip,
+.ov-action-btn {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ov-adata-chip:hover,
+.ov-action-btn:hover,
+.ov-inspector-button:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.ov-chip-more,
+.ov-meta,
+.ov-empty,
+.ov-table-footer,
+.ov-inspector-status {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+}
+
+.ov-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 360px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 6px;
+  background: var(--jp-layout-color1);
+}
+
+.ov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--jp-code-font-family);
+  font-size: 10.5px;
+}
+
+.ov-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 5px 8px;
+  border-bottom: 2px solid var(--jp-border-color2);
+  background: var(--jp-layout-color2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ov-th-index {
+  min-width: 44px;
+  background: var(--jp-layout-color2);
+}
+
+.ov-table tbody td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--jp-border-color3);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color2);
+  border-right: 1px solid var(--jp-border-color2);
+}
+
+.ov-table tbody tr:hover td {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.ov-table tbody tr:hover td:first-child {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.ov-table-footer {
+  padding: 5px 8px;
+  border-top: 1px solid var(--jp-border-color2);
+  background: var(--jp-layout-color2);
+}
+
+.ov-dtype-badge {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.7;
+  border: 1px solid transparent;
+}
+
+.ov-dtype-int {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.ov-dtype-float {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.ov-dtype-object {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.ov-dtype-bool {
+  background: #fce7f3;
+  color: #9d174d;
+  border-color: #fbcfe8;
+}
+
+.ov-dtype-datetime {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.ov-dtype-category {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.ov-dtype-other {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+.ov-adata-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ov-adata-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ov-adata-row-label {
+  min-width: 48px;
+  flex-shrink: 0;
+  padding-top: 2px;
+  color: #6c757d;
+  font-weight: 600;
+  font-size: 10.5px;
+  font-family: var(--jp-code-font-family);
+}
+
+.ov-adata-row-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+  line-height: 1.6;
+}
+
+.ov-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ov-action-btn,
+.ov-inspector-button {
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.ov-preview-host {
+  min-height: 0;
+  display: none;
+  margin-top: 2px;
+}
+
+.ov-preview-host.has-content {
+  display: block;
+}
+
+.ov-plot-panel {
+  gap: 8px;
+}
+
+.ov-plotly-host {
+  min-height: 420px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--jp-layout-color1);
+}
+
+.ov-plotly-host .modebar {
+  opacity: 0.7;
+}
+
+.ov-action-btn.is-active,
+.ov-adata-chip.is-active {
+  background: #e8f5e9;
+  border-color: #0b7a27;
+  color: #0b7a27;
+}
+
+.ov-pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--jp-border-color2);
+  background: var(--jp-layout-color1);
+  font-family: var(--jp-code-font-family);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ov-inspector-root,
+.ov-inspector-shell {
+  height: 100%;
+}
+
+.ov-inspector-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--jp-layout-color0);
+}
+
+.ov-inspector-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.ov-inspector-label {
+  font-weight: 600;
+}
+
+.ov-inspector-input {
+  min-width: 0;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-code-font-family);
+}
+
+.ov-inspector-status[data-state="error"] {
+  color: var(--jp-error-color1);
+}
+
+.ov-inspector-output {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+:root[data-jp-theme-light='false'] .ov-card {
+  background: #1a2540;
+  border-color: #2d4070;
+  color: #dbe4f5;
+}
+
+:root[data-jp-theme-light='false'] .ov-card-title {
+  color: #7a9ff5;
+}
+
+:root[data-jp-theme-light='false'] .ov-card-shape {
+  background: #1e2e55;
+  border-color: #3a5080;
+  color: #7a9ff5;
+}
+
+:root[data-jp-theme-light='false'] .ov-adata-row-label {
+  color: #9ca3af;
+}
+
+:root[data-jp-theme-light='false'] .ov-action-btn.is-active,
+:root[data-jp-theme-light='false'] .ov-adata-chip.is-active {
+  background: rgba(11, 122, 39, 0.2);
+  border-color: #19a144;
+  color: #7adf95;
+}

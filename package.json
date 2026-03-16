@@ -1,0 +1,60 @@
+{
+  "name": "omicverse-notebook",
+  "version": "0.1.0",
+  "description": "OmicVerse-inspired DataFrame and AnnData previews for JupyterLab",
+  "license": "MIT",
+  "author": "OpenAI Codex",
+  "keywords": [
+    "jupyterlab",
+    "jupyterlab-extension",
+    "pandas",
+    "anndata",
+    "omicverse"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "style": "style/index.css",
+  "files": [
+    "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
+    "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "jlpm build:lib && jlpm build:labextension:dev",
+    "build:prod": "jlpm clean && jlpm build:lib:prod && jlpm build:labextension",
+    "build:labextension": "jupyter labextension build .",
+    "build:labextension:dev": "jupyter labextension build --development True .",
+    "build:lib": "tsc --sourceMap",
+    "build:lib:prod": "tsc",
+    "clean": "jlpm clean:lib",
+    "clean:lib": "rimraf lib tsconfig.tsbuildinfo",
+    "clean:labextension": "rimraf omicverse_notebook/labextension",
+    "clean:all": "jlpm clean:lib && jlpm clean:labextension",
+    "install:extension": "jlpm build"
+  },
+  "dependencies": {
+    "@jupyterlab/application": "~4.4.6",
+    "@jupyterlab/apputils": "~4.5.6",
+    "@jupyterlab/console": "~4.4.6",
+    "@jupyterlab/notebook": "~4.4.6",
+    "@jupyterlab/rendermime-interfaces": "~3.12.6",
+    "@jupyterlab/services": "~7.4.6",
+    "@lumino/widgets": "^2.5.0",
+    "plotly.js-dist-min": "^3.4.0"
+  },
+  "devDependencies": {
+    "@jupyterlab/builder": "~4.4.6",
+    "rimraf": "^5.0.10",
+    "typescript": "~5.7.3"
+  },
+  "jupyterlab": {
+    "extension": "lib/index.js",
+    "mimeExtension": "lib/mime.js",
+    "outputDir": "omicverse_notebook/labextension"
+  },
+  "styleModule": "style/index.js",
+  "sideEffects": [
+    "style/*.css",
+    "style/index.js"
+  ]
+}
