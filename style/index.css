@@ -89,6 +89,21 @@
   color: var(--jp-ui-font-color2);
 }
 
+.ov-chip-more-btn {
+  border: 1px dashed var(--jp-border-color2);
+  border-radius: 999px;
+  background: transparent;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.ov-chip-more-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .ov-table-wrap {
   overflow-x: auto;
   overflow-y: auto;

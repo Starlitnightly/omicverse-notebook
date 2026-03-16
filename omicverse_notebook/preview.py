@@ -112,11 +112,10 @@ def _matrix_payload(
 
 def _pack_keys(keys: Any, limit: int) -> Dict[str, Any]:
     values = [str(key) for key in list(keys)]
-    kept = values[:limit]
     return {
-        "keys": kept,
+        "keys": values,
         "total": len(values),
-        "more": max(0, len(values) - len(kept)),
+        "more": max(0, len(values) - limit),
     }
 
 
@@ -132,11 +131,10 @@ def _is_embedding_like(value: Any) -> bool:
 
 def _pack_embedding_keys(mapping: Mapping[str, Any], limit: int) -> Dict[str, Any]:
     values = [str(key) for key, value in mapping.items() if _is_embedding_like(value)]
-    kept = values[:limit]
     return {
-        "keys": kept,
+        "keys": values,
         "total": len(values),
-        "more": max(0, len(values) - len(kept)),
+        "more": max(0, len(values) - limit),
     }
 
 
@@ -398,24 +396,26 @@ def plot_embedding_payload(
         payload["hover"] = _hover_texts(obs_names, str(column_name), values)
         return payload
 
-    labels: list[str] = []
-    codes: list[int] = []
-    values: list[str] = []
-    label_to_code: Dict[str, int] = {}
-    for raw_value in series.astype(object).where(pd.notna(series), None).tolist():
-        label = "NA" if raw_value is None else str(raw_value)
-        if label not in label_to_code:
-            label_to_code[label] = len(labels)
-            labels.append(label)
-        codes.append(label_to_code[label])
-        values.append(label)
+    categories = series if pd.api.types.is_categorical_dtype(series) else series.astype("category")
+    labels = [str(label) for label in categories.cat.categories.tolist()]
+    codes = categories.cat.codes.astype(int).tolist()
+    values = ["NA" if pd.isna(raw_value) else str(raw_value) for raw_value in series.astype(object).tolist()]
+    if any(code < 0 for code in codes):
+        labels = [*labels, "NA"]
+        na_code = len(labels) - 1
+        codes = [na_code if code < 0 else code for code in codes]
 
     payload["color"] = {
         "mode": "categorical",
         "column": str(column_name),
         "labels": labels,
         "codes": codes,
-        "palette": _get_uns_colors_for_labels(adata, str(column_name), labels)
+        "palette": (
+            (_get_uns_colors_for_labels(adata, str(column_name), labels[:-1]) or [_categorical_color(index) for index in range(len(labels) - 1)])
+            + (["#94a3b8"] if labels and labels[-1] == "NA" else [])
+        )
+        if labels and labels[-1] == "NA"
+        else _get_uns_colors_for_labels(adata, str(column_name), labels)
         or [_categorical_color(index) for index in range(len(labels))],
     }
     payload["hover"] = _hover_texts(obs_names, str(column_name), values)

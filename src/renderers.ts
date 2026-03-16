@@ -115,6 +115,7 @@ type KeyClickHandler = (
   trigger: HTMLElement
 ) => boolean | Promise<boolean>;
 
+const SECTION_VISIBLE_LIMIT = 18;
 const DEBUG_STORAGE_KEY = 'omicverse:notebook:debug';
 
 function isDebugEnabled(): boolean {
@@ -903,7 +904,6 @@ function createAnnDataSection(
   label: string,
   slot: string,
   keys: string[],
-  more: number,
   previewHost: HTMLElement,
   previews?: PreviewMap,
   onKeyClick?: KeyClickHandler
@@ -918,57 +918,88 @@ function createAnnDataSection(
 
   const row = document.createElement('span');
   row.className = 'ov-adata-row-values';
+  let expanded = false;
 
-  keys.forEach((key) => {
-    const chip = document.createElement(previews || onKeyClick ? 'button' : 'span');
-    chip.className = 'ov-adata-chip';
-    chip.textContent = key;
+  const renderKeys = () => {
+    row.replaceChildren();
+    const visibleKeys = expanded ? keys : keys.slice(0, SECTION_VISIBLE_LIMIT);
 
-    if (chip instanceof HTMLButtonElement) {
-      chip.type = 'button';
-      chip.onclick = () => {
-        void (async () => {
-          const handled = onKeyClick ? await onKeyClick(slot, key, chip) : false;
-          if (handled) {
-            return;
-          }
-          const preview = previews?.[key];
-          if (!preview) {
-            const note = document.createElement('div');
-            note.className = 'ov-empty';
-            note.textContent = 'No embedded preview for this entry. Use the inspector panel for a direct query.';
-            setPreviewContent(previewHost as PreviewHostElement, note, `${slot}:${key}`, chip);
-            return;
-          }
-          setPreviewContent(
-            previewHost as PreviewHostElement,
-            createLabeledPreview(`${slot}["${key}"]`, preview),
-            `${slot}:${key}`,
-            chip
-          );
-        })();
+    visibleKeys.forEach((key) => {
+      const chip = document.createElement(previews || onKeyClick ? 'button' : 'span');
+      chip.className = 'ov-adata-chip';
+      chip.textContent = key;
+
+      if (chip instanceof HTMLButtonElement) {
+        chip.type = 'button';
+        chip.onclick = () => {
+          void (async () => {
+            const handled = onKeyClick ? await onKeyClick(slot, key, chip) : false;
+            if (handled) {
+              return;
+            }
+            const preview = previews?.[key];
+            if (!preview) {
+              const note = document.createElement('div');
+              note.className = 'ov-empty';
+              note.textContent = 'No embedded preview for this entry. Use the inspector panel for a direct query.';
+              setPreviewContent(previewHost as PreviewHostElement, note, `${slot}:${key}`, chip);
+              return;
+            }
+            setPreviewContent(
+              previewHost as PreviewHostElement,
+              createLabeledPreview(`${slot}["${key}"]`, preview),
+              `${slot}:${key}`,
+              chip
+            );
+          })();
+        };
+      }
+
+      row.appendChild(chip);
+    });
+
+    const hiddenCount = Math.max(0, keys.length - SECTION_VISIBLE_LIMIT);
+    if (hiddenCount > 0) {
+      const moreBadge = document.createElement('button');
+      moreBadge.type = 'button';
+      moreBadge.className = 'ov-chip-more ov-chip-more-btn';
+      moreBadge.textContent = expanded ? 'Show less' : `+${hiddenCount} more`;
+      moreBadge.onclick = () => {
+        expanded = !expanded;
+        renderKeys();
       };
+      row.appendChild(moreBadge);
     }
 
-    row.appendChild(chip);
-  });
+    if (!keys.length) {
+      const empty = document.createElement('span');
+      empty.className = 'ov-empty';
+      empty.textContent = '—';
+      row.appendChild(empty);
+    }
+  };
 
-  if (more > 0) {
-    const moreBadge = document.createElement('span');
-    moreBadge.className = 'ov-chip-more';
-    moreBadge.textContent = `+${more} more`;
-    row.appendChild(moreBadge);
-  }
-
-  if (!keys.length) {
-    const empty = document.createElement('span');
-    empty.className = 'ov-empty';
-    empty.textContent = '—';
-    row.appendChild(empty);
-  }
+  renderKeys();
 
   section.appendChild(row);
   return section;
+}
+
+function appendToggleMoreButton(
+  container: HTMLElement,
+  expanded: boolean,
+  hiddenCount: number,
+  onToggle: () => void
+): void {
+  if (hiddenCount <= 0) {
+    return;
+  }
+  const moreBadge = document.createElement('button');
+  moreBadge.type = 'button';
+  moreBadge.className = 'ov-chip-more ov-chip-more-btn';
+  moreBadge.textContent = expanded ? 'Show less' : `+${hiddenCount} more`;
+  moreBadge.onclick = onToggle;
+  container.appendChild(moreBadge);
 }
 
 function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
@@ -1019,6 +1050,8 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
   let activeEmbeddingBasis: string | null = null;
   let activeEmbeddingColorBy: string | undefined;
   let activeEmbeddingButton: HTMLButtonElement | null = null;
+  let colorActionsExpanded = false;
+  let embeddingActionsExpanded = false;
 
   const resetEmbeddingState = () => {
     activeEmbeddingBasis = null;
@@ -1102,6 +1135,7 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
     colorActions.replaceChildren();
     colorActions.classList.remove('has-content');
     if (!activeEmbeddingBasis) {
+      colorActionsExpanded = false;
       return;
     }
 
@@ -1133,14 +1167,19 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
     };
 
     addColorButton('Default');
-    payload.summary.obs_columns.forEach((column) => addColorButton(column, `obs:${column}`));
-
-    if (payload.summary.obs_columns_more > 0) {
-      const moreBadge = document.createElement('span');
-      moreBadge.className = 'ov-chip-more';
-      moreBadge.textContent = `+${payload.summary.obs_columns_more} more`;
-      colorActions.appendChild(moreBadge);
-    }
+    const visibleObsColumns = colorActionsExpanded
+      ? payload.summary.obs_columns
+      : payload.summary.obs_columns.slice(0, SECTION_VISIBLE_LIMIT);
+    visibleObsColumns.forEach((column) => addColorButton(column, `obs:${column}`));
+    appendToggleMoreButton(
+      colorActions,
+      colorActionsExpanded,
+      Math.max(0, payload.summary.obs_columns.length - SECTION_VISIBLE_LIMIT),
+      () => {
+        colorActionsExpanded = !colorActionsExpanded;
+        updateColorActions();
+      }
+    );
 
     colorActions.classList.add('has-content');
   };
@@ -1223,23 +1262,33 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
   addPreviewButton('Preview .obs', payload.previews?.obs, 'summary:obs');
   addPreviewButton('Preview .var', payload.previews?.var, 'summary:var');
 
-  embeddingKeys.forEach((basis) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'ov-action-btn';
-    button.textContent = basis === preferredEmbeddingKey ? `Plot ${basis}` : basis;
-    button.onclick = () => {
-      void showEmbedding(basis, undefined, button, `embedding:${basis}:default`);
-    };
-    embeddingActions.appendChild(button);
-  });
+  const renderEmbeddingActions = () => {
+    embeddingActions.replaceChildren();
+    const visibleEmbeddingKeys = embeddingActionsExpanded
+      ? embeddingKeys
+      : embeddingKeys.slice(0, SECTION_VISIBLE_LIMIT);
+    visibleEmbeddingKeys.forEach((basis) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ov-action-btn';
+      button.textContent = basis === preferredEmbeddingKey ? `Plot ${basis}` : basis;
+      button.onclick = () => {
+        void showEmbedding(basis, undefined, button, `embedding:${basis}:default`);
+      };
+      embeddingActions.appendChild(button);
+    });
+    appendToggleMoreButton(
+      embeddingActions,
+      embeddingActionsExpanded,
+      Math.max(0, embeddingKeys.length - SECTION_VISIBLE_LIMIT),
+      () => {
+        embeddingActionsExpanded = !embeddingActionsExpanded;
+        renderEmbeddingActions();
+      }
+    );
+  };
 
-  if (payload.summary.embedding_keys_more > 0) {
-    const moreBadge = document.createElement('span');
-    moreBadge.className = 'ov-chip-more';
-    moreBadge.textContent = `+${payload.summary.embedding_keys_more} more`;
-    embeddingActions.appendChild(moreBadge);
-  }
+  renderEmbeddingActions();
 
   addActionGroup('Browse', previewActions);
   addActionGroup('Visualize', embeddingActions);
@@ -1252,7 +1301,6 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'obs',
       'obs',
       payload.summary.obs_columns,
-      payload.summary.obs_columns_more,
       previewHost,
       undefined,
       async (_slot, key, trigger) => showSlotPreview('obs', key, trigger)
@@ -1264,7 +1312,6 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'var',
       'var',
       payload.summary.var_columns,
-      payload.summary.var_columns_more,
       previewHost,
       undefined,
       async (_slot, key, trigger) => showSlotPreview('var', key, trigger)
@@ -1276,7 +1323,6 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'uns',
       'uns',
       payload.summary.uns_keys,
-      payload.summary.uns_keys_more,
       previewHost,
       undefined,
       async (_slot, key, trigger) => showSlotPreview('uns', key, trigger)
@@ -1288,7 +1334,6 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'obsm',
       'obsm',
       payload.summary.obsm_keys,
-      payload.summary.obsm_keys_more,
       previewHost,
       undefined,
       async (_slot, key, trigger) => showSlotPreview('obsm', key, trigger)
@@ -1300,7 +1345,6 @@ function renderAnnDataPayload(payload: AnnDataPayload): HTMLElement {
       'layers',
       'layers',
       payload.summary.layers,
-      payload.summary.layers_more,
       previewHost,
       undefined,
       async (_slot, key, trigger) => showSlotPreview('layers', key, trigger)
