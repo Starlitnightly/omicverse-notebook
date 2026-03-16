@@ -680,10 +680,13 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload, sel
   const xToCanvas = (value: number) => plotLeft + (value - minX) * scale;
   const yToCanvas = (value: number) => plotTop + drawnHeight - (value - minY) * scale;
 
-  ctx.fillStyle = dark ? '#111827' : '#ffffff';
+  const computed = window.getComputedStyle(document.documentElement);
+  const layoutBg = computed.getPropertyValue('--jp-layout-color1').trim() || '';
+  ctx.fillStyle = layoutBg || (dark ? '#060815' : '#ffffff');
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = dark ? '#334155' : '#cbd5e1';
+  const borderColor = computed.getPropertyValue('--jp-border-color2').trim() || '';
+  ctx.strokeStyle = borderColor || (dark ? '#334155' : '#cbd5e1');
   ctx.lineWidth = 1;
   ctx.strokeRect(margin.left, margin.top, plotWidth, plotHeight);
 

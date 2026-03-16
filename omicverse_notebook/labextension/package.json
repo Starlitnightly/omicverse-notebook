@@ -51,7 +51,7 @@
     "mimeExtension": "lib/mime.js",
     "outputDir": "omicverse_notebook/labextension",
     "_build": {
-      "load": "static/remoteEntry.2f6712d7e38c994f36d3.js",
+      "load": "static/remoteEntry.1add1e7167456200e90f.js",
       "extension": "./extension",
       "mimeExtension": "./mimeExtension",
       "style": "./style"
