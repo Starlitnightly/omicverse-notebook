@@ -16,7 +16,7 @@ yarn-error.log*
 # TypeScript build state
 *.tsbuildinfo
 
-# omicverse-notebook local build artifacts
-/omicverse-notebook/dist/
-/omicverse-notebook/lib/
-/omicverse-notebook/omicverse_notebook/__pycache__/
+# Local build artifacts
+/dist/
+/lib/
+/omicverse_notebook/__pycache__/
