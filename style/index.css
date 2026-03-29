@@ -127,6 +127,43 @@
   padding-bottom: 6px;
 }
 
+.ov-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ov-card-spacer {
+  flex: 1 1 auto;
+}
+
+.ov-palette-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--ov-card-muted);
+  font-family: var(--jp-code-font-family);
+}
+
+.ov-palette-select {
+  min-width: 92px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  padding: 2px 24px 2px 8px;
+  font-size: 10.5px;
+  font-family: var(--jp-code-font-family);
+}
+
+.ov-palette-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+
 .ov-adata-chip {
   display: inline-flex;
   align-items: center;

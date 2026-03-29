@@ -124,6 +124,8 @@ type KeyClickHandler = (
   trigger: HTMLElement
 ) => boolean | Promise<boolean>;
 
+type ColumnPalette = 'paired' | 'rainbow' | 'ocean' | 'forest' | 'sunset' | 'mono';
+
 const SECTION_VISIBLE_LIMIT = 18;
 const DEBUG_STORAGE_KEY = 'omicverse:notebook:debug';
 
@@ -172,19 +174,74 @@ function dtypeClass(dtype: string | undefined): string {
   return 'ov-dtype-other';
 }
 
-function columnTheme(colIdx: number, dark = false): { bg: string; border: string; fg: string } {
-  const hue = (colIdx * 47 + 18) % 360;
+function hexToRgb(hex: string): [number, number, number] {
+  const value = hex.replace('#', '');
+  return [
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16)
+  ];
+}
+
+function rgba(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function columnTheme(
+  colIdx: number,
+  palette: ColumnPalette,
+  dark = false
+): { bg: string; border: string; fg: string } {
+  if (palette === 'paired') {
+    const colors = [
+      '#a6cee3',
+      '#1f78b4',
+      '#b2df8a',
+      '#33a02c',
+      '#fb9a99',
+      '#e31a1c',
+      '#fdbf6f',
+      '#ff7f00',
+      '#cab2d6',
+      '#6a3d9a',
+      '#ffff99',
+      '#b15928'
+    ];
+    const color = colors[colIdx % colors.length];
+    return dark
+      ? {
+          bg: rgba(color, 0.28),
+          border: rgba(color, 0.48),
+          fg: color
+        }
+      : {
+          bg: rgba(color, 0.78),
+          border: rgba(color, 0.58),
+          fg: '#17212b'
+        };
+  }
+  const specs: Record<Exclude<ColumnPalette, 'paired'>, { step: number; offset: number; sat: number }> = {
+    rainbow: { step: 47, offset: 18, sat: 88 },
+    ocean: { step: 19, offset: 185, sat: 72 },
+    forest: { step: 13, offset: 108, sat: 62 },
+    sunset: { step: 23, offset: 8, sat: 84 },
+    mono: { step: 0, offset: 220, sat: 8 }
+  };
+  const spec = specs[palette];
+  const hue = (colIdx * spec.step + spec.offset) % 360;
+  const saturation = spec.sat;
   if (dark) {
     return {
-      bg: `hsla(${hue}, 72%, 28%, 0.42)`,
-      border: `hsla(${hue}, 70%, 58%, 0.45)`,
-      fg: `hsl(${hue}, 78%, 84%)`
+      bg: `hsla(${hue}, ${Math.max(saturation - 10, 6)}%, 28%, 0.42)`,
+      border: `hsla(${hue}, ${Math.max(saturation - 12, 8)}%, 58%, 0.45)`,
+      fg: `hsl(${hue}, ${Math.max(saturation - 6, 10)}%, 84%)`
     };
   }
   return {
-    bg: `hsla(${hue}, 88%, 84%, 0.95)`,
-    border: `hsla(${hue}, 78%, 42%, 0.55)`,
-    fg: `hsl(${hue}, 72%, 18%)`
+    bg: `hsla(${hue}, ${saturation}%, 84%, 0.95)`,
+    border: `hsla(${hue}, ${Math.max(saturation - 10, 6)}%, 42%, 0.55)`,
+    fg: `hsl(${hue}, ${Math.max(saturation - 16, 8)}%, 18%)`
   };
 }
 
@@ -192,16 +249,21 @@ function isDarkMode(): boolean {
   return document.documentElement.dataset.jpThemeLight === 'false';
 }
 
-function applyColumnTheme(el: HTMLElement, colIdx: number, role: 'header' | 'cell'): void {
+function applyColumnTheme(
+  el: HTMLElement,
+  colIdx: number,
+  role: 'header' | 'cell',
+  palette: ColumnPalette
+): void {
   const dark = isDarkMode();
-  const theme = columnTheme(colIdx, dark);
+  const theme = columnTheme(colIdx, palette, dark);
   if (role === 'header') {
     el.style.background = theme.bg;
     el.style.color = theme.fg;
     el.style.borderColor = theme.border;
     return;
   }
-  el.style.background = dark ? theme.bg : `hsla(${(colIdx * 47 + 18) % 360}, 88%, 90%, 0.7)`;
+  el.style.background = dark ? theme.bg : theme.bg.replace('0.95', '0.7');
   el.style.borderLeft = `1px solid ${theme.border}`;
   el.style.color = dark ? theme.fg : '#1f2937';
 }
@@ -232,7 +294,8 @@ function createTable(
   tableData: TableData,
   dtypes?: Record<string, string>,
   withFooter = false,
-  shape?: number[]
+  shape?: number[],
+  palette: ColumnPalette = 'paired'
 ): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'ov-table-wrap';
@@ -276,7 +339,7 @@ function createTable(
   tableData.columns.forEach((col, colIdx) => {
     const th = document.createElement('th');
     th.textContent = String(col);
-    applyColumnTheme(th, colIdx, 'header');
+    applyColumnTheme(th, colIdx, 'header', palette);
     const dtype = dtypes?.[col];
     if (dtype) {
       const badge = document.createElement('span');
@@ -301,7 +364,7 @@ function createTable(
       const value = cell === null || cell === undefined ? '' : String(cell);
       td.textContent = value;
       td.title = value;
-      applyColumnTheme(td, colIdx, 'cell');
+      applyColumnTheme(td, colIdx, 'cell', palette);
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -554,17 +617,65 @@ function renderDataFramePayload(payload: DataFramePayload, options: { withFooter
   const card = document.createElement('div');
   card.className = 'ov-card ov-df-card';
 
+  const topRow = document.createElement('div');
+  topRow.className = 'ov-card-row';
+
   const title = document.createElement('span');
   title.className = 'ov-card-title';
   title.textContent = 'DataFrame';
-  card.appendChild(title);
+  topRow.appendChild(title);
 
   if (payload.shape && payload.shape.length >= 2) {
     const badge = document.createElement('span');
     badge.className = 'ov-card-shape';
     badge.textContent = `${Number(payload.shape[0]).toLocaleString()} rows × ${payload.shape[1]} cols`;
-    card.appendChild(badge);
+    topRow.appendChild(badge);
   }
+
+  const spacer = document.createElement('span');
+  spacer.className = 'ov-card-spacer';
+  topRow.appendChild(spacer);
+
+  let palette: ColumnPalette = 'paired';
+  if (payload.table) {
+    const paletteLabel = document.createElement('label');
+    paletteLabel.className = 'ov-palette-label';
+    paletteLabel.textContent = 'Palette';
+
+    const paletteSelect = document.createElement('select');
+    paletteSelect.className = 'ov-palette-select';
+    const optionsMap: Array<{ value: ColumnPalette; label: string }> = [
+      { value: 'paired', label: 'Paired' },
+      { value: 'rainbow', label: 'Rainbow' },
+      { value: 'ocean', label: 'Ocean' },
+      { value: 'forest', label: 'Forest' },
+      { value: 'sunset', label: 'Sunset' },
+      { value: 'mono', label: 'Mono' }
+    ];
+    optionsMap.forEach(({ value, label }) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      paletteSelect.appendChild(option);
+    });
+    paletteSelect.value = palette;
+    paletteLabel.appendChild(paletteSelect);
+    topRow.appendChild(paletteLabel);
+
+    const tableHost = document.createElement('div');
+    const renderTable = () => {
+      tableHost.replaceChildren(
+        createTable(payload.table!, payload.dtypes, options.withFooter ?? true, payload.shape, palette)
+      );
+    };
+    paletteSelect.onchange = () => {
+      palette = paletteSelect.value as ColumnPalette;
+      renderTable();
+    };
+    renderTable();
+    root.appendChild(tableHost);
+  }
+  card.appendChild(topRow);
 
   if (payload.name) {
     const nameNode = document.createElement('div');
@@ -573,8 +684,11 @@ function renderDataFramePayload(payload: DataFramePayload, options: { withFooter
     card.appendChild(nameNode);
   }
 
-  if (payload.table) {
-    root.appendChild(createTable(payload.table, payload.dtypes, options.withFooter ?? true, payload.shape));
+  if (!payload.table) {
+    const empty = document.createElement('div');
+    empty.className = 'ov-empty';
+    empty.textContent = 'No table preview available.';
+    root.appendChild(empty);
   }
 
   root.prepend(card);

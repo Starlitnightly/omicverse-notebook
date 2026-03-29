@@ -23,7 +23,6 @@ ANNDATA_MIME_TYPE = "application/vnd.omicverse.anndata+json"
 _PREVIEW_REGISTRY: "OrderedDict[str, Any]" = OrderedDict()
 _PREVIEW_REGISTRY_LIMIT = 128
 _ORIGINAL_IPYTHON_HOOKS: Dict[str, Any] = {}
-_RICH_THEME = "github-light"
 
 
 def _json_safe_frame(frame: pd.DataFrame, max_rows: int, max_cols: int) -> Dict[str, Any]:
@@ -80,32 +79,39 @@ def _error_payload(exc: BaseException, context: Optional[str] = None) -> Dict[st
     return payload
 
 
-def _render_rich_text_html(text: str, lexer: Optional[str] = None) -> str:
-    try:
-        from rich.console import Console
-        from rich.highlighter import ReprHighlighter
-        from rich.syntax import Syntax
-        from rich.text import Text
-
-        console = Console(
-            record=True,
-            width=96,
-            file=io.StringIO(),
-            force_terminal=False,
-            force_jupyter=False,
+def _render_traceback_html(text: str) -> str:
+    lines = text.splitlines() or ["No additional information is available."]
+    rendered = []
+    for raw_line in lines:
+        line = html.escape(raw_line)
+        line = re.sub(
+            r'(^\s*File\s+"[^"]+",\s+line\s+\d+.*$)',
+            r'<span style="color:#7c3aed;font-weight:700">\1</span>',
+            line,
         )
-        if lexer:
-            console.print(Syntax(text, lexer, theme=_RICH_THEME, word_wrap=True, background_color="default"))
-        else:
-            rich_text = Text(text)
-            ReprHighlighter()(rich_text)
-            console.print(rich_text)
-        return console.export_html(
-            inline_styles=True,
-            code_format="<pre style='margin:0; white-space:pre-wrap; word-break:break-word; overflow-x:auto'>{code}</pre>",
-        ).strip()
-    except Exception:
-        return html.escape(text)
+        line = re.sub(
+            r"(^\s*[A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning|Exit):)",
+            r'<span style="color:#b91c1c;font-weight:700">\1</span>',
+            line,
+        )
+        line = re.sub(
+            r"(^\s*Traceback \(most recent call last\):$)",
+            r'<span style="color:#0f766e;font-weight:700">\1</span>',
+            line,
+        )
+        line = re.sub(
+            r"(^\s*\d+\s)",
+            r'<span style="color:#64748b">\1</span>',
+            line,
+        )
+        rendered.append(line)
+    return (
+        "<pre style='margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; overflow-x:auto; "
+        "font-family:var(--jp-code-font-family, Menlo, Consolas, monospace); "
+        "font-size:11px; line-height:1.5; tab-size:4'>"
+        + "\n".join(rendered)
+        + "</pre>"
+    )
 
 
 def _render_where_html(text: str) -> str:
@@ -197,7 +203,7 @@ def _html_pre_block(text: Optional[str], lexer: Optional[str] = None) -> str:
     value = (text or "").strip()
     if not value:
         value = "No additional information is available."
-    mode_class = " ov-exc-pre--fixed" if lexer == "pytb" else ""
+    mode_class = ""
     if lexer == "message":
         body = _render_message_html(value)
     elif lexer == "explain":
@@ -205,8 +211,10 @@ def _html_pre_block(text: Optional[str], lexer: Optional[str] = None) -> str:
     elif lexer == "where":
         mode_class = " ov-exc-pre--fixed"
         body = _render_where_html(value)
+    elif lexer == "pytb":
+        body = _render_traceback_html(value)
     else:
-        body = _render_rich_text_html(value, lexer=lexer)
+        body = _render_message_html(value)
     return f'<div class="ov-exc-pre{mode_class}">{body}</div>'
 
 
@@ -1177,8 +1185,6 @@ def enable_all(
     theme: Optional[str] = None,
     **kwargs: Any,
 ) -> bool:
-    global _RICH_THEME
-
     if ipython is None:
         ipython = get_ipython()  # type: ignore[name-defined]
     if ipython is None:
@@ -1186,11 +1192,7 @@ def enable_all(
 
     if theme is not None:
         normalized = str(theme).strip().lower()
-        if normalized == "dark":
-            _RICH_THEME = "github-dark"
-        elif normalized in {"light", "default"}:
-            _RICH_THEME = "github-light"
-        else:
+        if normalized not in {"light", "dark", "default"}:
             raise ValueError('theme must be "light", "dark", or None')
 
     _install_ipython_exception_ui()

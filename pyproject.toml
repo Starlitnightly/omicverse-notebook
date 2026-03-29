@@ -14,8 +14,7 @@ authors = [
 ]
 dependencies = [
   "friendly>=0.7.21",
-  "pandas>=1.5",
-  "rich"
+  "pandas>=1.5"
 ]
 
 [project.optional-dependencies]
