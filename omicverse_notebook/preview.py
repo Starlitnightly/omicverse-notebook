@@ -7,6 +7,7 @@ from collections import OrderedDict
 import contextlib
 import html
 import io
+import math
 import re
 import sys
 import traceback
@@ -23,6 +24,10 @@ ANNDATA_MIME_TYPE = "application/vnd.omicverse.anndata+json"
 _PREVIEW_REGISTRY: "OrderedDict[str, Any]" = OrderedDict()
 _PREVIEW_REGISTRY_LIMIT = 128
 _ORIGINAL_IPYTHON_HOOKS: Dict[str, Any] = {}
+_EMBEDDING_FLOAT_PRECISION = 4
+_EMBEDDING_MAX_POINTS_DEFAULT = 30000
+_EMBEDDING_MAX_POINTS_COLORED = 18000
+_EMBEDDING_MAX_CATEGORICAL_LEGEND_ITEMS = 64
 
 
 def _json_safe_frame(frame: pd.DataFrame, max_rows: int, max_cols: int) -> Dict[str, Any]:
@@ -980,14 +985,81 @@ def _sample_indices(n_obs: int, max_points: int) -> list[int]:
     return sampled
 
 
-def _hover_texts(obs_names: list[str], color_label: Optional[str], color_values: list[Any]) -> list[str]:
-    if not color_label:
-        return obs_names
-    texts = []
-    for obs_name, color_value in zip(obs_names, color_values):
-        label = "NA" if color_value is None else str(color_value)
-        texts.append(f"{obs_name}<br>{color_label}: {label}")
-    return texts
+def _compact_float(value: Any, digits: int = _EMBEDDING_FLOAT_PRECISION) -> float:
+    numeric = round(float(value), digits)
+    if numeric == 0:
+        return 0.0
+    return numeric
+
+
+def _compact_optional_float_list(values: list[Any], digits: int = _EMBEDDING_FLOAT_PRECISION) -> list[Optional[float]]:
+    compact: list[Optional[float]] = []
+    for value in values:
+        if value is None or pd.isna(value):
+            compact.append(None)
+            continue
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            compact.append(None)
+            continue
+        compact.append(_compact_float(numeric, digits=digits))
+    return compact
+
+
+def _categorical_color_payload(
+    adata: Any,
+    column_name: str,
+    series: pd.Series,
+) -> tuple[Dict[str, Any], Optional[str]]:
+    raw_values = series.astype(object).tolist()
+    observed_labels = [str(value) for value in raw_values if not pd.isna(value)]
+    observed_set = set(observed_labels)
+
+    if pd.api.types.is_categorical_dtype(series):
+        ordered_labels = [str(label) for label in series.cat.categories.tolist() if str(label) in observed_set]
+    else:
+        ordered_labels = list(dict.fromkeys(observed_labels))
+
+    has_na = any(pd.isna(value) for value in raw_values)
+    palette = _get_uns_colors_for_labels(adata, str(column_name), ordered_labels)
+    if palette is None:
+        palette = _default_discrete_colors(max(len(ordered_labels), 1))
+
+    if len(ordered_labels) <= _EMBEDDING_MAX_CATEGORICAL_LEGEND_ITEMS:
+        code_map = {label: index for index, label in enumerate(ordered_labels)}
+        labels = ordered_labels[:]
+        if has_na:
+            code_map["NA"] = len(labels)
+            labels.append("NA")
+        codes = [code_map["NA"] if pd.isna(value) else code_map[str(value)] for value in raw_values]
+        return (
+            {
+                "mode": "categorical",
+                "column": str(column_name),
+                "labels": labels,
+                "codes": codes,
+                "palette": palette[: len(ordered_labels)] + (["#94a3b8"] if has_na else []),
+            },
+            None,
+        )
+
+    color_map = {
+        label: palette[index % len(palette)]
+        for index, label in enumerate(ordered_labels)
+    }
+    colors = ["#94a3b8" if pd.isna(value) else color_map[str(value)] for value in raw_values]
+    warning = (
+        f'obs column "{column_name}" has {len(ordered_labels):,} sampled categories. '
+        "Legend rendering was disabled to keep the plot responsive."
+    )
+    return (
+        {
+            "mode": "direct",
+            "column": str(column_name),
+            "colors": colors,
+        },
+        warning,
+    )
 
 
 def plot_embedding_payload(
@@ -1017,11 +1089,21 @@ def plot_embedding_payload(
     if coords.ndim != 2 or coords.shape[1] < 2:
         raise ValueError(f'Embedding "{key}" must be a 2D matrix with at least two columns')
 
-    sampled_idx = _sample_indices(int(coords.shape[0]), max_points=max_points)
+    sampled_limit = min(
+        max_points,
+        _EMBEDDING_MAX_POINTS_DEFAULT if not color_by else _EMBEDDING_MAX_POINTS_COLORED,
+    )
+    sampled_idx = _sample_indices(int(coords.shape[0]), max_points=sampled_limit)
     sampled = coords[sampled_idx, :2]
-    x = [float(value) for value in sampled[:, 0].tolist()]
-    y = [float(value) for value in sampled[:, 1].tolist()]
-    obs_names = [str(adata.obs_names[i]) for i in sampled_idx]
+    finite_mask = np.isfinite(sampled).all(axis=1)
+    if not bool(finite_mask.all()):
+        sampled = sampled[finite_mask]
+        sampled_idx = [index for index, keep in zip(sampled_idx, finite_mask.tolist()) if keep]
+    if not sampled_idx:
+        raise ValueError(f'Embedding "{key}" contains no finite 2D coordinates')
+
+    x = [_compact_float(value) for value in sampled[:, 0].tolist()]
+    y = [_compact_float(value) for value in sampled[:, 1].tolist()]
 
     payload: Dict[str, Any] = {
         "type": "embedding",
@@ -1037,20 +1119,18 @@ def plot_embedding_payload(
 
     if not color_by:
         payload["color"] = {"mode": "none"}
-        payload["hover"] = obs_names
         return payload
 
     column_name = color_by[4:] if color_by.startswith("obs:") else color_by
     if column_name not in adata.obs.columns:
         payload["color"] = {"mode": "none"}
-        payload["hover"] = obs_names
         payload["warning"] = f'obs column "{column_name}" was not found'
         return payload
 
     series = adata.obs.iloc[sampled_idx][column_name]
     if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
         numeric = pd.to_numeric(series, errors="coerce")
-        values = [None if pd.isna(value) else float(value) for value in numeric.tolist()]
+        values = _compact_optional_float_list(numeric.tolist())
         finite = [value for value in values if value is not None]
         payload["color"] = {
             "mode": "continuous",
@@ -1059,29 +1139,12 @@ def plot_embedding_payload(
             "min": min(finite) if finite else None,
             "max": max(finite) if finite else None,
         }
-        payload["hover"] = _hover_texts(obs_names, str(column_name), values)
         return payload
 
-    categories = series if pd.api.types.is_categorical_dtype(series) else series.astype("category")
-    labels = [str(label) for label in categories.cat.categories.tolist()]
-    codes = categories.cat.codes.astype(int).tolist()
-    values = ["NA" if pd.isna(raw_value) else str(raw_value) for raw_value in series.astype(object).tolist()]
-    if any(code < 0 for code in codes):
-        labels = [*labels, "NA"]
-        na_code = len(labels) - 1
-        codes = [na_code if code < 0 else code for code in codes]
-    base_palette = _get_uns_colors_for_labels(adata, str(column_name), labels[:-1] if labels and labels[-1] == "NA" else labels)
-    if base_palette is None:
-        base_palette = _default_discrete_colors(len(labels) - 1 if labels and labels[-1] == "NA" else len(labels))
-
-    payload["color"] = {
-        "mode": "categorical",
-        "column": str(column_name),
-        "labels": labels,
-        "codes": codes,
-        "palette": base_palette + (["#94a3b8"] if labels and labels[-1] == "NA" else []),
-    }
-    payload["hover"] = _hover_texts(obs_names, str(column_name), values)
+    color_payload, warning = _categorical_color_payload(adata, str(column_name), series)
+    payload["color"] = color_payload
+    if warning:
+        payload["warning"] = warning
     return payload
 
 

@@ -54,7 +54,7 @@
     "outputDir": "omicverse_notebook/labextension",
     "themePath": "theme/index.css",
     "_build": {
-      "load": "static/remoteEntry.a83194f3b1348eddc197.js",
+      "load": "static/remoteEntry.12574810efe1ab203605.js",
       "extension": "./extension",
       "mimeExtension": "./mimeExtension",
       "style": "./style"

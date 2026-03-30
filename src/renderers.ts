@@ -60,7 +60,17 @@ type EmbeddingColorCategorical = {
   palette: string[];
 };
 
-type EmbeddingColor = EmbeddingColorNone | EmbeddingColorContinuous | EmbeddingColorCategorical;
+type EmbeddingColorDirect = {
+  mode: 'direct';
+  column: string;
+  colors: string[];
+};
+
+type EmbeddingColor =
+  | EmbeddingColorNone
+  | EmbeddingColorContinuous
+  | EmbeddingColorCategorical
+  | EmbeddingColorDirect;
 
 type EmbeddingPayload = BasePayload & {
   type: 'embedding';
@@ -70,7 +80,6 @@ type EmbeddingPayload = BasePayload & {
   sampled: boolean;
   x: number[];
   y: number[];
-  hover?: string[];
   warning?: string;
   color: EmbeddingColor;
 };
@@ -968,6 +977,8 @@ function renderCanvasEmbedding(host: HTMLElement, payload: EmbeddingPayload, sel
       } else if (selectedCodes.size > 0) {
         alpha = 0.95;
       }
+    } else if (payload.color.mode === 'direct') {
+      color = payload.color.colors[i] ?? '#64748b';
     } else if (payload.color.mode === 'continuous') {
       const continuous = payload.color;
       const value = payload.color.values[i];
