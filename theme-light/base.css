@@ -10,3 +10,14 @@ pre {
   font-size: var(--jp-code-font-size);
   line-height: var(--jp-code-line-height);
 }
+
+/* Replace the default JupyterLab main logo with the OmicVerse favicon. */
+#jp-MainLogo {
+  min-width: 32px;
+  min-height: 32px;
+  background: center / 28px 28px no-repeat url('./favicon.ico');
+}
+
+#jp-MainLogo > svg {
+  visibility: hidden;
+}

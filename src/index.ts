@@ -13,6 +13,12 @@ import '../style/index.css';
 const BRAND_LOGO_SELECTOR = '#jp-top-panel > .lm-Widget:first-child';
 const BRAND_LOGO_APPLIED_ATTR = 'data-ov-brand-logo';
 const BRAND_LOGO_STYLE_ID = 'ov-brand-logo-style';
+const GREEN_NOTEBOOK_ICON_URL =
+  `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' viewBox='0 0 22 22'%3E` +
+  `%3Cg fill='%2378AA95'%3E` +
+  `%3Cpath d='M18.7 3.3v15.4H3.3V3.3h15.4m1.5-1.5H1.8v18.3h18.3l.1-18.3z'/%3E` +
+  `%3Cpath d='M16.5 16.5l-5.4-4.3-5.6 4.3v-11h11z'/%3E` +
+  `%3C/g%3E%3C/svg%3E")`;
 
 function ensureBrandLogoStyles(): void {
   if (document.getElementById(BRAND_LOGO_STYLE_ID)) {
@@ -24,19 +30,27 @@ function ensureBrandLogoStyles(): void {
   style.textContent = `
     ${BRAND_LOGO_SELECTOR}[${BRAND_LOGO_APPLIED_ATTR}="true"] {
       position: relative;
-      min-width: 40px;
-      width: 40px;
-      height: 40px;
-      margin-right: 4px;
+      min-width: 32px;
+      width: 32px;
+      height: 32px;
+      margin-right: 2px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: center / 32px 32px no-repeat var(--ov-brand-logo-url);
+      background: center / 22px 22px no-repeat var(--ov-brand-logo-url);
     }
 
     ${BRAND_LOGO_SELECTOR}[${BRAND_LOGO_APPLIED_ATTR}="true"] > * {
       opacity: 0;
       pointer-events: none;
+    }
+
+    :root {
+      --jp-icon-notebook: ${GREEN_NOTEBOOK_ICON_URL};
+    }
+
+    .jp-NotebookIcon {
+      background-image: var(--jp-icon-notebook) !important;
     }
   `;
   document.head.appendChild(style);
@@ -63,7 +77,7 @@ function resolveBrandLogoUrl(): string {
   if (href) {
     return href.replace(/(?:light\/)?index\.css(?:\?.*)?$/, 'favicon.ico');
   }
-  return `${window.location.origin}/lab/extensions/omicverse-notebook/themes/omicverse-notebook/favicon.ico`;
+  return `${window.location.origin}/lab/extensions/omicverse-notebook/static/favicon.ico`;
 }
 
 async function enableKernelFormatters(sessionContext: ISessionContext, enabledSessions: Set<string>): Promise<void> {

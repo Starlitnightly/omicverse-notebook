@@ -22,6 +22,14 @@ const lightTargetDir = path.join(
   'omicverse-notebook',
   'light'
 );
+const sourceFavicon = path.join(root, 'theme', 'favicon.ico');
+const staticTargetFavicon = path.join(
+  root,
+  'omicverse_notebook',
+  'labextension',
+  'static',
+  'favicon.ico'
+);
 
 if (existsSync(darkFontsSourceDir)) {
   mkdirSync(path.dirname(darkFontsTargetDir), { recursive: true });
@@ -33,4 +41,9 @@ if (existsSync(lightSourceDir)) {
   rmSync(path.join(lightTargetDir, 'fonts.css'), { force: true });
   mkdirSync(path.dirname(lightTargetDir), { recursive: true });
   cpSync(lightSourceDir, lightTargetDir, { recursive: true });
+}
+
+if (existsSync(sourceFavicon)) {
+  mkdirSync(path.dirname(staticTargetFavicon), { recursive: true });
+  cpSync(sourceFavicon, staticTargetFavicon);
 }
